@@ -1,0 +1,4 @@
+.venv/
+seed/*/source/
+seed/*/text/
+/.env.cloudrun

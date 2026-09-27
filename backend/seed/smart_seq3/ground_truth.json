@@ -1,0 +1,2021 @@
+{
+  "protocol_id": "smart_seq3",
+  "protocol_name": "SMART-seq3",
+  "protocol_scope": {
+    "applicable_variants": [
+      "Smart-seq3"
+    ],
+    "protocol_version": "Smart-seq3 (Hagemann-Jensen et al. 2020)"
+  },
+  "workflows": [
+    {
+      "final_outputs": [
+        {
+          "modality": "gene expression",
+          "state_id": "s10_final_library_5p_fragment"
+        },
+        {
+          "modality": "gene expression",
+          "state_id": "s11_final_library_internal_fragment"
+        }
+      ],
+      "initial_state_ids": [
+        "s01_mrna"
+      ],
+      "states": [
+        {
+          "discontinuities": [],
+          "molecule_type": "RNA",
+          "name": "Poly(A)+ mRNA",
+          "paired_regions": [],
+          "physical_state": "in solution (single-cell lysate)",
+          "properties": [],
+          "reference_strand_id": "s01_rna",
+          "state_id": "s01_mrna",
+          "strand_architecture": "single_stranded",
+          "strands": [
+            {
+              "molecule_type": "RNA",
+              "name": "mRNA",
+              "orientation": "5_to_3",
+              "segments": [
+                {
+                  "placeholder": "[MRNA]",
+                  "role": "mRNA transcript body",
+                  "segment_id": "s01_body",
+                  "structural_role": "unpaired"
+                },
+                {
+                  "placeholder": "[POLYA]",
+                  "role": "poly(A) tail",
+                  "segment_id": "s01_polya",
+                  "structural_role": "unpaired"
+                }
+              ],
+              "strand_id": "s01_rna",
+              "support_status": "explicit"
+            }
+          ],
+          "support_status": "explicit"
+        },
+        {
+          "discontinuities": [],
+          "molecule_type": "RNA:DNA hybrid",
+          "name": "mRNA:first-strand cDNA hybrid",
+          "paired_regions": [
+            {
+              "paired_region_id": "s02_pr1",
+              "relationship": "reverse_complementary",
+              "side_1": {
+                "segment_ids": [
+                  "s02_rna_body",
+                  "s02_rna_polya"
+                ],
+                "strand_id": "s02_rna"
+              },
+              "side_2": {
+                "segment_ids": [
+                  "s02_polyt",
+                  "s02_anchor",
+                  "s02_cdna_body"
+                ],
+                "strand_id": "s02_cdna"
+              },
+              "support_status": "derivable"
+            }
+          ],
+          "physical_state": "in solution",
+          "properties": [],
+          "reference_strand_id": "s02_cdna",
+          "state_id": "s02_rt_hybrid",
+          "strand_architecture": "rna_dna_hybrid",
+          "strands": [
+            {
+              "molecule_type": "RNA",
+              "name": "mRNA template",
+              "orientation": "5_to_3",
+              "segments": [
+                {
+                  "placeholder": "[MRNA]",
+                  "role": "mRNA transcript body",
+                  "segment_id": "s02_rna_body",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "placeholder": "[POLYA]",
+                  "role": "poly(A) tail",
+                  "segment_id": "s02_rna_polya",
+                  "structural_role": "paired_region"
+                }
+              ],
+              "strand_id": "s02_rna",
+              "support_status": "explicit"
+            },
+            {
+              "molecule_type": "DNA",
+              "name": "first-strand cDNA",
+              "orientation": "5_to_3",
+              "segments": [
+                {
+                  "oligo_derivations": [
+                    {
+                      "oligo_id": "oligo_smartseq3_oligodt30vn",
+                      "orientation_to_source": "same_orientation"
+                    }
+                  ],
+                  "role": "RT/PCR handle from Smartseq3_OligodT30VN",
+                  "segment_id": "s02_handle",
+                  "sequence": "ACGAGCATCAGCAGCATACGA",
+                  "structural_role": "five_prime_overhang"
+                },
+                {
+                  "oligo_derivations": [
+                    {
+                      "oligo_id": "oligo_smartseq3_oligodt30vn",
+                      "orientation_to_source": "same_orientation"
+                    }
+                  ],
+                  "role": "poly-dT tract",
+                  "segment_id": "s02_polyt",
+                  "sequence": "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "oligo_derivations": [
+                    {
+                      "oligo_id": "oligo_smartseq3_oligodt30vn",
+                      "orientation_to_source": "same_orientation"
+                    }
+                  ],
+                  "role": "VN anchor",
+                  "segment_id": "s02_anchor",
+                  "sequence": "VN",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "placeholder": "[CDNA]",
+                  "role": "first-strand cDNA copy of the transcript",
+                  "segment_id": "s02_cdna_body",
+                  "structural_role": "paired_region"
+                }
+              ],
+              "strand_id": "s02_cdna",
+              "support_status": "explicit"
+            }
+          ],
+          "support_status": "explicit"
+        },
+        {
+          "discontinuities": [],
+          "molecule_type": "RNA:DNA hybrid",
+          "name": "mRNA:cDNA hybrid with untemplated 3' Cs",
+          "paired_regions": [
+            {
+              "paired_region_id": "s03_pr1",
+              "relationship": "reverse_complementary",
+              "side_1": {
+                "segment_ids": [
+                  "s03_rna_body",
+                  "s03_rna_polya"
+                ],
+                "strand_id": "s03_rna"
+              },
+              "side_2": {
+                "segment_ids": [
+                  "s03_polyt",
+                  "s03_anchor",
+                  "s03_cdna_body"
+                ],
+                "strand_id": "s03_cdna"
+              },
+              "support_status": "derivable"
+            }
+          ],
+          "physical_state": "in solution",
+          "properties": [
+            "untemplated 3' C tail"
+          ],
+          "reference_strand_id": "s03_cdna",
+          "state_id": "s03_rt_hybrid_c_tailed",
+          "strand_architecture": "rna_dna_hybrid",
+          "strands": [
+            {
+              "molecule_type": "RNA",
+              "name": "mRNA template",
+              "orientation": "5_to_3",
+              "segments": [
+                {
+                  "placeholder": "[MRNA]",
+                  "role": "mRNA transcript body",
+                  "segment_id": "s03_rna_body",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "placeholder": "[POLYA]",
+                  "role": "poly(A) tail",
+                  "segment_id": "s03_rna_polya",
+                  "structural_role": "paired_region"
+                }
+              ],
+              "strand_id": "s03_rna",
+              "support_status": "explicit"
+            },
+            {
+              "molecule_type": "DNA",
+              "name": "first-strand cDNA with 3' C tail",
+              "orientation": "5_to_3",
+              "segments": [
+                {
+                  "oligo_derivations": [
+                    {
+                      "oligo_id": "oligo_smartseq3_oligodt30vn",
+                      "orientation_to_source": "same_orientation"
+                    }
+                  ],
+                  "role": "RT/PCR handle from Smartseq3_OligodT30VN",
+                  "segment_id": "s03_handle",
+                  "sequence": "ACGAGCATCAGCAGCATACGA",
+                  "structural_role": "five_prime_overhang"
+                },
+                {
+                  "role": "poly-dT tract",
+                  "segment_id": "s03_polyt",
+                  "sequence": "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "role": "VN anchor",
+                  "segment_id": "s03_anchor",
+                  "sequence": "VN",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "placeholder": "[CDNA]",
+                  "role": "first-strand cDNA copy of the transcript",
+                  "segment_id": "s03_cdna_body",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "role": "untemplated C nucleotides added by the RT terminal transferase activity",
+                  "segment_id": "s03_ccc",
+                  "sequence": "CCC",
+                  "structural_role": "three_prime_overhang"
+                }
+              ],
+              "strand_id": "s03_cdna",
+              "support_status": "explicit"
+            }
+          ],
+          "support_status": "explicit"
+        },
+        {
+          "discontinuities": [],
+          "molecule_type": "DNA",
+          "name": "Template-switched first-strand cDNA",
+          "paired_regions": [],
+          "physical_state": "in solution",
+          "properties": [],
+          "reference_strand_id": "s04_cdna",
+          "state_id": "s04_template_switched_cdna",
+          "strand_architecture": "single_stranded",
+          "strands": [
+            {
+              "molecule_type": "DNA",
+              "name": "first-strand cDNA carrying the copied TSO",
+              "orientation": "5_to_3",
+              "segments": [
+                {
+                  "oligo_derivations": [
+                    {
+                      "oligo_id": "oligo_smartseq3_oligodt30vn",
+                      "orientation_to_source": "same_orientation"
+                    }
+                  ],
+                  "role": "RT/PCR handle",
+                  "segment_id": "s04_handle",
+                  "sequence": "ACGAGCATCAGCAGCATACGA",
+                  "structural_role": "unpaired"
+                },
+                {
+                  "role": "poly-dT tract",
+                  "segment_id": "s04_polyt",
+                  "sequence": "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
+                  "structural_role": "unpaired"
+                },
+                {
+                  "placeholder": "[CDNA]",
+                  "role": "first-strand cDNA copy of the transcript",
+                  "segment_id": "s04_cdna_body",
+                  "structural_role": "unpaired"
+                },
+                {
+                  "role": "untemplated C nucleotides",
+                  "segment_id": "s04_ccc",
+                  "sequence": "CCC",
+                  "structural_role": "unpaired"
+                },
+                {
+                  "oligo_derivations": [
+                    {
+                      "oligo_id": "oligo_smartseq3_n8_tso",
+                      "orientation_to_source": "reverse_complement"
+                    }
+                  ],
+                  "placeholder": "[UMI:8]",
+                  "role": "UMI copied from the TSO",
+                  "segment_id": "s04_umi",
+                  "structural_role": "unpaired"
+                },
+                {
+                  "oligo_derivations": [
+                    {
+                      "oligo_id": "oligo_smartseq3_n8_tso",
+                      "orientation_to_source": "reverse_complement"
+                    }
+                  ],
+                  "role": "11-bp 5' fragment tag copied from the TSO",
+                  "segment_id": "s04_tag",
+                  "sequence": "CATTGCGCAAT",
+                  "structural_role": "unpaired"
+                },
+                {
+                  "oligo_derivations": [
+                    {
+                      "oligo_id": "oligo_smartseq3_n8_tso",
+                      "orientation_to_source": "reverse_complement"
+                    }
+                  ],
+                  "role": "partial mosaic end copied from the TSO",
+                  "segment_id": "s04_me_partial",
+                  "sequence": "CTGTCTCT",
+                  "structural_role": "unpaired"
+                }
+              ],
+              "sequence_architecture": "ACGAGCATCAGCAGCATACGATTTTTTTTTTTTTTTTTTTTTTTTTTTTTT[CDNA]CCC[UMI:8]CATTGCGCAATCTGTCTCT",
+              "strand_id": "s04_cdna",
+              "support_status": "explicit"
+            }
+          ],
+          "support_status": "explicit"
+        },
+        {
+          "discontinuities": [],
+          "molecule_type": "DNA",
+          "name": "Amplified full-length double-stranded cDNA",
+          "paired_regions": [
+            {
+              "paired_region_id": "s05_pr1",
+              "relationship": "reverse_complementary",
+              "side_1": {
+                "segment_ids": [
+                  "s05_t_s5",
+                  "s05_t_me",
+                  "s05_t_tag",
+                  "s05_t_umi",
+                  "s05_t_ggg",
+                  "s05_t_cdna",
+                  "s05_t_polya",
+                  "s05_t_handle_rc"
+                ],
+                "strand_id": "s05_top"
+              },
+              "side_2": {
+                "segment_ids": [
+                  "s05_b_handle",
+                  "s05_b_polyt",
+                  "s05_b_cdna",
+                  "s05_b_ccc",
+                  "s05_b_umi",
+                  "s05_b_tag",
+                  "s05_b_me",
+                  "s05_b_s5"
+                ],
+                "strand_id": "s05_bot"
+              },
+              "support_status": "derivable"
+            }
+          ],
+          "physical_state": "in solution",
+          "properties": [
+            "purified amplified cDNA"
+          ],
+          "reference_strand_id": "s05_top",
+          "state_id": "s05_amplified_cdna",
+          "strand_architecture": "double_stranded",
+          "strands": [
+            {
+              "molecule_type": "DNA",
+              "name": "top strand (TSO sense)",
+              "orientation": "5_to_3",
+              "segments": [
+                {
+                  "oligo_derivations": [
+                    {
+                      "oligo_id": "oligo_fwd_pcr_primer",
+                      "orientation_to_source": "same_orientation"
+                    }
+                  ],
+                  "role": "Nextera N/S5xx primer entry point (s5)",
+                  "segment_id": "s05_t_s5",
+                  "sequence": "TCGTCGGCAGCGTC",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "oligo_derivations": [
+                    {
+                      "oligo_id": "oligo_fwd_pcr_primer",
+                      "orientation_to_source": "same_orientation"
+                    }
+                  ],
+                  "role": "Nextera Tn5 mosaic end (ME)",
+                  "segment_id": "s05_t_me",
+                  "sequence": "AGATGTGTATAAGAGACAG",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "oligo_derivations": [
+                    {
+                      "oligo_id": "oligo_fwd_pcr_primer",
+                      "orientation_to_source": "same_orientation"
+                    },
+                    {
+                      "oligo_id": "oligo_smartseq3_n8_tso",
+                      "orientation_to_source": "same_orientation"
+                    }
+                  ],
+                  "role": "11-bp 5' fragment tag",
+                  "segment_id": "s05_t_tag",
+                  "sequence": "ATTGCGCAATG",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "oligo_derivations": [
+                    {
+                      "oligo_id": "oligo_smartseq3_n8_tso",
+                      "orientation_to_source": "same_orientation"
+                    }
+                  ],
+                  "placeholder": "[UMI:8]",
+                  "role": "8-bp UMI",
+                  "segment_id": "s05_t_umi",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "oligo_derivations": [
+                    {
+                      "oligo_id": "oligo_smartseq3_n8_tso",
+                      "orientation_to_source": "same_orientation"
+                    }
+                  ],
+                  "role": "template-switch GGG",
+                  "segment_id": "s05_t_ggg",
+                  "sequence": "GGG",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "placeholder": "[CDNA]",
+                  "role": "cDNA",
+                  "segment_id": "s05_t_cdna",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "placeholder": "[POLYA]",
+                  "role": "poly(A)-derived tract",
+                  "segment_id": "s05_t_polya",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "oligo_derivations": [
+                    {
+                      "oligo_id": "oligo_rev_pcr_primer",
+                      "orientation_to_source": "reverse_complement"
+                    }
+                  ],
+                  "role": "RT/PCR handle, reverse complement on this strand",
+                  "segment_id": "s05_t_handle_rc",
+                  "sequence": "TCGTATGCTGCTGATGCTCGT",
+                  "structural_role": "paired_region"
+                }
+              ],
+              "sequence_architecture": "TCGTCGGCAGCGTCAGATGTGTATAAGAGACAGATTGCGCAATG[UMI:8]GGG[CDNA][POLYA]TCGTATGCTGCTGATGCTCGT",
+              "strand_id": "s05_top",
+              "support_status": "explicit"
+            },
+            {
+              "molecule_type": "DNA",
+              "name": "bottom strand (first-strand cDNA sense)",
+              "orientation": "5_to_3",
+              "segments": [
+                {
+                  "oligo_derivations": [
+                    {
+                      "oligo_id": "oligo_rev_pcr_primer",
+                      "orientation_to_source": "same_orientation"
+                    }
+                  ],
+                  "role": "RT/PCR handle",
+                  "segment_id": "s05_b_handle",
+                  "sequence": "ACGAGCATCAGCAGCATACGA",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "role": "poly-dT tract",
+                  "segment_id": "s05_b_polyt",
+                  "sequence": "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "placeholder": "[CDNA]",
+                  "role": "cDNA",
+                  "segment_id": "s05_b_cdna",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "role": "C nucleotides complementary to the template-switch GGG",
+                  "segment_id": "s05_b_ccc",
+                  "sequence": "CCC",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "oligo_derivations": [
+                    {
+                      "oligo_id": "oligo_smartseq3_n8_tso",
+                      "orientation_to_source": "reverse_complement"
+                    }
+                  ],
+                  "placeholder": "[UMI:8]",
+                  "role": "8-bp UMI, reverse complement on this strand",
+                  "segment_id": "s05_b_umi",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "role": "11-bp 5' fragment tag, reverse complement on this strand",
+                  "segment_id": "s05_b_tag",
+                  "sequence": "CATTGCGCAAT",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "role": "Nextera ME, reverse complement on this strand",
+                  "segment_id": "s05_b_me",
+                  "sequence": "CTGTCTCTTATACACATCT",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "role": "s5 entry point, reverse complement on this strand",
+                  "segment_id": "s05_b_s5",
+                  "sequence": "GACGCTGCCGACGA",
+                  "structural_role": "paired_region"
+                }
+              ],
+              "strand_id": "s05_bot",
+              "support_status": "explicit"
+            }
+          ],
+          "support_status": "explicit"
+        },
+        {
+          "discontinuities": [
+            {
+              "after_segment_id": "s06_t_cdna",
+              "before_segment_id": "s06_t_me_nt",
+              "discontinuity_id": "s06_gap_top",
+              "kind": "gap",
+              "strand_id": "s06_top",
+              "support_status": "explicit"
+            }
+          ],
+          "molecule_type": "DNA",
+          "name": "Tagmented 5' fragment with 9-bp gap",
+          "paired_regions": [
+            {
+              "paired_region_id": "s06_pr_body",
+              "relationship": "reverse_complementary",
+              "side_1": {
+                "segment_ids": [
+                  "s06_t_s5",
+                  "s06_t_me",
+                  "s06_t_tag",
+                  "s06_t_umi",
+                  "s06_t_ggg",
+                  "s06_t_cdna"
+                ],
+                "strand_id": "s06_top"
+              },
+              "side_2": {
+                "segment_ids": [
+                  "s06_b_cdna",
+                  "s06_b_ccc",
+                  "s06_b_umi",
+                  "s06_b_tag",
+                  "s06_b_me_rc",
+                  "s06_b_s5_rc"
+                ],
+                "strand_id": "s06_bot"
+              },
+              "support_status": "derivable"
+            },
+            {
+              "paired_region_id": "s06_pr_me",
+              "relationship": "reverse_complementary",
+              "side_1": {
+                "segment_ids": [
+                  "s06_t_me_nt"
+                ],
+                "strand_id": "s06_top"
+              },
+              "side_2": {
+                "segment_ids": [
+                  "s06_b_me"
+                ],
+                "strand_id": "s06_bot"
+              },
+              "support_status": "explicit"
+            }
+          ],
+          "physical_state": "in solution",
+          "properties": [
+            "9-bp gap created by tagmentation",
+            "carries the 5' end of the transcript"
+          ],
+          "reference_strand_id": "s06_top",
+          "state_id": "s06_tagmented_5p_fragment",
+          "strand_architecture": "partially_duplex",
+          "strands": [
+            {
+              "molecule_type": "DNA",
+              "name": "top strand with annealed non-transferred mosaic-end oligo",
+              "orientation": "5_to_3",
+              "segments": [
+                {
+                  "role": "Nextera N/S5xx primer entry point (s5)",
+                  "segment_id": "s06_t_s5",
+                  "sequence": "TCGTCGGCAGCGTC",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "role": "Nextera Tn5 mosaic end (ME)",
+                  "segment_id": "s06_t_me",
+                  "sequence": "AGATGTGTATAAGAGACAG",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "role": "11-bp 5' fragment tag",
+                  "segment_id": "s06_t_tag",
+                  "sequence": "ATTGCGCAATG",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "placeholder": "[UMI:8]",
+                  "role": "8-bp UMI",
+                  "segment_id": "s06_t_umi",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "role": "template-switch GGG",
+                  "segment_id": "s06_t_ggg",
+                  "sequence": "GGG",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "placeholder": "[CDNA]",
+                  "role": "cDNA (5' transcript end)",
+                  "segment_id": "s06_t_cdna",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "oligo_derivations": [
+                    {
+                      "oligo_id": "oligo_nextera_tn5_binding_site_19_bp_mosaic_end_me",
+                      "orientation_to_source": "reverse_complement"
+                    }
+                  ],
+                  "role": "non-transferred mosaic-end strand from the Tn5 transposome",
+                  "segment_id": "s06_t_me_nt",
+                  "sequence": "CTGTCTCTTATACACATCT",
+                  "structural_role": "paired_region"
+                }
+              ],
+              "strand_id": "s06_top",
+              "support_status": "explicit"
+            },
+            {
+              "molecule_type": "DNA",
+              "name": "bottom strand with transferred s7 mosaic-end adapter",
+              "orientation": "5_to_3",
+              "segments": [
+                {
+                  "oligo_derivations": [
+                    {
+                      "oligo_id": "oligo_nextera_n7xx_primer_entry_point_s7",
+                      "orientation_to_source": "same_orientation"
+                    }
+                  ],
+                  "role": "Nextera N7xx primer entry point (s7) from the transferred adapter",
+                  "segment_id": "s06_b_s7",
+                  "sequence": "GTCTCGTGGGCTCGG",
+                  "structural_role": "five_prime_overhang"
+                },
+                {
+                  "oligo_derivations": [
+                    {
+                      "oligo_id": "oligo_nextera_tn5_binding_site_19_bp_mosaic_end_me",
+                      "orientation_to_source": "same_orientation"
+                    }
+                  ],
+                  "role": "transferred Nextera mosaic end (ME)",
+                  "segment_id": "s06_b_me",
+                  "sequence": "AGATGTGTATAAGAGACAG",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "length": 9,
+                  "role": "9-nt single-stranded region opposite the tagmentation gap",
+                  "segment_id": "s06_b_gap9",
+                  "structural_role": "internal_unpaired"
+                },
+                {
+                  "placeholder": "[CDNA]",
+                  "role": "cDNA",
+                  "segment_id": "s06_b_cdna",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "role": "C nucleotides complementary to the template-switch GGG",
+                  "segment_id": "s06_b_ccc",
+                  "sequence": "CCC",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "placeholder": "[UMI:8]",
+                  "role": "8-bp UMI, reverse complement on this strand",
+                  "segment_id": "s06_b_umi",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "role": "11-bp 5' fragment tag, reverse complement on this strand",
+                  "segment_id": "s06_b_tag",
+                  "sequence": "CATTGCGCAAT",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "role": "Nextera ME, reverse complement on this strand",
+                  "segment_id": "s06_b_me_rc",
+                  "sequence": "CTGTCTCTTATACACATCT",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "role": "s5 entry point, reverse complement on this strand",
+                  "segment_id": "s06_b_s5_rc",
+                  "sequence": "GACGCTGCCGACGA",
+                  "structural_role": "paired_region"
+                }
+              ],
+              "strand_id": "s06_bot",
+              "support_status": "explicit"
+            }
+          ],
+          "support_status": "explicit"
+        },
+        {
+          "discontinuities": [
+            {
+              "after_segment_id": "s07_t_cdna",
+              "before_segment_id": "s07_t_me_nt",
+              "discontinuity_id": "s07_gap_top",
+              "kind": "gap",
+              "strand_id": "s07_top",
+              "support_status": "explicit"
+            },
+            {
+              "after_segment_id": "s07_b_cdna",
+              "before_segment_id": "s07_b_me_nt",
+              "discontinuity_id": "s07_gap_bot",
+              "kind": "gap",
+              "strand_id": "s07_bot",
+              "support_status": "explicit"
+            }
+          ],
+          "molecule_type": "DNA",
+          "name": "Tagmented internal fragment with 9-bp gaps at both ends",
+          "paired_regions": [
+            {
+              "paired_region_id": "s07_pr_left_me",
+              "relationship": "reverse_complementary",
+              "side_1": {
+                "segment_ids": [
+                  "s07_t_me"
+                ],
+                "strand_id": "s07_top"
+              },
+              "side_2": {
+                "segment_ids": [
+                  "s07_b_me_nt"
+                ],
+                "strand_id": "s07_bot"
+              },
+              "support_status": "explicit"
+            },
+            {
+              "paired_region_id": "s07_pr_body",
+              "relationship": "reverse_complementary",
+              "side_1": {
+                "segment_ids": [
+                  "s07_t_cdna"
+                ],
+                "strand_id": "s07_top"
+              },
+              "side_2": {
+                "segment_ids": [
+                  "s07_b_cdna"
+                ],
+                "strand_id": "s07_bot"
+              },
+              "support_status": "derivable"
+            },
+            {
+              "paired_region_id": "s07_pr_right_me",
+              "relationship": "reverse_complementary",
+              "side_1": {
+                "segment_ids": [
+                  "s07_t_me_nt"
+                ],
+                "strand_id": "s07_top"
+              },
+              "side_2": {
+                "segment_ids": [
+                  "s07_b_me"
+                ],
+                "strand_id": "s07_bot"
+              },
+              "support_status": "explicit"
+            }
+          ],
+          "physical_state": "in solution",
+          "properties": [
+            "9-bp gaps created by tagmentation at both ends"
+          ],
+          "reference_strand_id": "s07_top",
+          "state_id": "s07_tagmented_internal_fragment",
+          "strand_architecture": "partially_duplex",
+          "strands": [
+            {
+              "molecule_type": "DNA",
+              "name": "top strand with transferred s5 mosaic-end adapter",
+              "orientation": "5_to_3",
+              "segments": [
+                {
+                  "oligo_derivations": [
+                    {
+                      "oligo_id": "oligo_nextera_n_s5xx_primer_entry_point_s5",
+                      "orientation_to_source": "same_orientation"
+                    }
+                  ],
+                  "role": "Nextera N/S5xx primer entry point (s5) from the transferred adapter",
+                  "segment_id": "s07_t_s5",
+                  "sequence": "TCGTCGGCAGCGTC",
+                  "structural_role": "five_prime_overhang"
+                },
+                {
+                  "oligo_derivations": [
+                    {
+                      "oligo_id": "oligo_nextera_tn5_binding_site_19_bp_mosaic_end_me",
+                      "orientation_to_source": "same_orientation"
+                    }
+                  ],
+                  "role": "transferred Nextera mosaic end (ME)",
+                  "segment_id": "s07_t_me",
+                  "sequence": "AGATGTGTATAAGAGACAG",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "length": 9,
+                  "role": "9-nt single-stranded region opposite the tagmentation gap",
+                  "segment_id": "s07_t_gap9",
+                  "structural_role": "internal_unpaired"
+                },
+                {
+                  "placeholder": "[CDNA]",
+                  "role": "cDNA (internal transcript fragment)",
+                  "segment_id": "s07_t_cdna",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "oligo_derivations": [
+                    {
+                      "oligo_id": "oligo_nextera_tn5_binding_site_19_bp_mosaic_end_me",
+                      "orientation_to_source": "reverse_complement"
+                    }
+                  ],
+                  "role": "non-transferred mosaic-end strand from the Tn5 transposome",
+                  "segment_id": "s07_t_me_nt",
+                  "sequence": "CTGTCTCTTATACACATCT",
+                  "structural_role": "paired_region"
+                }
+              ],
+              "strand_id": "s07_top",
+              "support_status": "explicit"
+            },
+            {
+              "molecule_type": "DNA",
+              "name": "bottom strand with transferred s7 mosaic-end adapter",
+              "orientation": "5_to_3",
+              "segments": [
+                {
+                  "oligo_derivations": [
+                    {
+                      "oligo_id": "oligo_nextera_n7xx_primer_entry_point_s7",
+                      "orientation_to_source": "same_orientation"
+                    }
+                  ],
+                  "role": "Nextera N7xx primer entry point (s7) from the transferred adapter",
+                  "segment_id": "s07_b_s7",
+                  "sequence": "GTCTCGTGGGCTCGG",
+                  "structural_role": "five_prime_overhang"
+                },
+                {
+                  "oligo_derivations": [
+                    {
+                      "oligo_id": "oligo_nextera_tn5_binding_site_19_bp_mosaic_end_me",
+                      "orientation_to_source": "same_orientation"
+                    }
+                  ],
+                  "role": "transferred Nextera mosaic end (ME)",
+                  "segment_id": "s07_b_me",
+                  "sequence": "AGATGTGTATAAGAGACAG",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "length": 9,
+                  "role": "9-nt single-stranded region opposite the tagmentation gap",
+                  "segment_id": "s07_b_gap9",
+                  "structural_role": "internal_unpaired"
+                },
+                {
+                  "placeholder": "[CDNA]",
+                  "role": "cDNA",
+                  "segment_id": "s07_b_cdna",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "oligo_derivations": [
+                    {
+                      "oligo_id": "oligo_nextera_tn5_binding_site_19_bp_mosaic_end_me",
+                      "orientation_to_source": "reverse_complement"
+                    }
+                  ],
+                  "role": "non-transferred mosaic-end strand from the Tn5 transposome",
+                  "segment_id": "s07_b_me_nt",
+                  "sequence": "CTGTCTCTTATACACATCT",
+                  "structural_role": "paired_region"
+                }
+              ],
+              "strand_id": "s07_bot",
+              "support_status": "explicit"
+            }
+          ],
+          "support_status": "explicit"
+        },
+        {
+          "discontinuities": [],
+          "molecule_type": "DNA",
+          "name": "Gap-filled 5' fragment duplex",
+          "paired_regions": [
+            {
+              "paired_region_id": "s08_pr1",
+              "relationship": "reverse_complementary",
+              "side_1": {
+                "segment_ids": [
+                  "s08_t_s5",
+                  "s08_t_me",
+                  "s08_t_tag",
+                  "s08_t_umi",
+                  "s08_t_ggg",
+                  "s08_t_cdna",
+                  "s08_t_me_rc",
+                  "s08_t_s7_rc"
+                ],
+                "strand_id": "s08_top"
+              },
+              "side_2": {
+                "segment_ids": [
+                  "s08_b_s7",
+                  "s08_b_me",
+                  "s08_b_cdna",
+                  "s08_b_ccc",
+                  "s08_b_umi",
+                  "s08_b_tag",
+                  "s08_b_me_rc",
+                  "s08_b_s5_rc"
+                ],
+                "strand_id": "s08_bot"
+              },
+              "support_status": "derivable"
+            }
+          ],
+          "physical_state": "in solution",
+          "properties": [],
+          "reference_strand_id": "s08_top",
+          "state_id": "s08_gap_filled_5p_fragment",
+          "strand_architecture": "double_stranded",
+          "strands": [
+            {
+              "molecule_type": "DNA",
+              "name": "top strand",
+              "orientation": "5_to_3",
+              "segments": [
+                {
+                  "role": "s5 entry point",
+                  "segment_id": "s08_t_s5",
+                  "sequence": "TCGTCGGCAGCGTC",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "role": "Nextera ME",
+                  "segment_id": "s08_t_me",
+                  "sequence": "AGATGTGTATAAGAGACAG",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "role": "11-bp 5' fragment tag",
+                  "segment_id": "s08_t_tag",
+                  "sequence": "ATTGCGCAATG",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "placeholder": "[UMI:8]",
+                  "role": "8-bp UMI",
+                  "segment_id": "s08_t_umi",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "role": "template-switch GGG",
+                  "segment_id": "s08_t_ggg",
+                  "sequence": "GGG",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "placeholder": "[CDNA]",
+                  "role": "cDNA (5' transcript end)",
+                  "segment_id": "s08_t_cdna",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "role": "Nextera ME, reverse complement on this strand",
+                  "segment_id": "s08_t_me_rc",
+                  "sequence": "CTGTCTCTTATACACATCT",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "role": "s7 entry point, reverse complement on this strand",
+                  "segment_id": "s08_t_s7_rc",
+                  "sequence": "CCGAGCCCACGAGAC",
+                  "structural_role": "paired_region"
+                }
+              ],
+              "sequence_architecture": "TCGTCGGCAGCGTCAGATGTGTATAAGAGACAGATTGCGCAATG[UMI:8]GGG[CDNA]CTGTCTCTTATACACATCTCCGAGCCCACGAGAC",
+              "strand_id": "s08_top",
+              "support_status": "explicit"
+            },
+            {
+              "molecule_type": "DNA",
+              "name": "bottom strand",
+              "orientation": "5_to_3",
+              "segments": [
+                {
+                  "role": "s7 entry point",
+                  "segment_id": "s08_b_s7",
+                  "sequence": "GTCTCGTGGGCTCGG",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "role": "Nextera ME",
+                  "segment_id": "s08_b_me",
+                  "sequence": "AGATGTGTATAAGAGACAG",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "placeholder": "[CDNA]",
+                  "role": "cDNA",
+                  "segment_id": "s08_b_cdna",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "role": "CCC complementary to the template-switch GGG",
+                  "segment_id": "s08_b_ccc",
+                  "sequence": "CCC",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "placeholder": "[UMI:8]",
+                  "role": "8-bp UMI, reverse complement on this strand",
+                  "segment_id": "s08_b_umi",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "role": "11-bp tag, reverse complement on this strand",
+                  "segment_id": "s08_b_tag",
+                  "sequence": "CATTGCGCAAT",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "role": "Nextera ME, reverse complement on this strand",
+                  "segment_id": "s08_b_me_rc",
+                  "sequence": "CTGTCTCTTATACACATCT",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "role": "s5 entry point, reverse complement on this strand",
+                  "segment_id": "s08_b_s5_rc",
+                  "sequence": "GACGCTGCCGACGA",
+                  "structural_role": "paired_region"
+                }
+              ],
+              "strand_id": "s08_bot",
+              "support_status": "explicit"
+            }
+          ],
+          "support_status": "explicit"
+        },
+        {
+          "discontinuities": [],
+          "molecule_type": "DNA",
+          "name": "Gap-filled internal fragment duplex",
+          "paired_regions": [
+            {
+              "paired_region_id": "s09_pr1",
+              "relationship": "reverse_complementary",
+              "side_1": {
+                "segment_ids": [
+                  "s09_t_s5",
+                  "s09_t_me",
+                  "s09_t_cdna",
+                  "s09_t_me_rc",
+                  "s09_t_s7_rc"
+                ],
+                "strand_id": "s09_top"
+              },
+              "side_2": {
+                "segment_ids": [
+                  "s09_b_s7",
+                  "s09_b_me",
+                  "s09_b_cdna",
+                  "s09_b_me_rc",
+                  "s09_b_s5_rc"
+                ],
+                "strand_id": "s09_bot"
+              },
+              "support_status": "derivable"
+            }
+          ],
+          "physical_state": "in solution",
+          "properties": [],
+          "reference_strand_id": "s09_top",
+          "state_id": "s09_gap_filled_internal_fragment",
+          "strand_architecture": "double_stranded",
+          "strands": [
+            {
+              "molecule_type": "DNA",
+              "name": "top strand",
+              "orientation": "5_to_3",
+              "segments": [
+                {
+                  "role": "s5 entry point",
+                  "segment_id": "s09_t_s5",
+                  "sequence": "TCGTCGGCAGCGTC",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "role": "Nextera ME",
+                  "segment_id": "s09_t_me",
+                  "sequence": "AGATGTGTATAAGAGACAG",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "placeholder": "[CDNA]",
+                  "role": "cDNA (internal transcript fragment)",
+                  "segment_id": "s09_t_cdna",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "role": "Nextera ME, reverse complement on this strand",
+                  "segment_id": "s09_t_me_rc",
+                  "sequence": "CTGTCTCTTATACACATCT",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "role": "s7 entry point, reverse complement on this strand",
+                  "segment_id": "s09_t_s7_rc",
+                  "sequence": "CCGAGCCCACGAGAC",
+                  "structural_role": "paired_region"
+                }
+              ],
+              "sequence_architecture": "TCGTCGGCAGCGTCAGATGTGTATAAGAGACAG[CDNA]CTGTCTCTTATACACATCTCCGAGCCCACGAGAC",
+              "strand_id": "s09_top",
+              "support_status": "explicit"
+            },
+            {
+              "molecule_type": "DNA",
+              "name": "bottom strand",
+              "orientation": "5_to_3",
+              "segments": [
+                {
+                  "role": "s7 entry point",
+                  "segment_id": "s09_b_s7",
+                  "sequence": "GTCTCGTGGGCTCGG",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "role": "Nextera ME",
+                  "segment_id": "s09_b_me",
+                  "sequence": "AGATGTGTATAAGAGACAG",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "placeholder": "[CDNA]",
+                  "role": "cDNA",
+                  "segment_id": "s09_b_cdna",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "role": "Nextera ME, reverse complement on this strand",
+                  "segment_id": "s09_b_me_rc",
+                  "sequence": "CTGTCTCTTATACACATCT",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "role": "s5 entry point, reverse complement on this strand",
+                  "segment_id": "s09_b_s5_rc",
+                  "sequence": "GACGCTGCCGACGA",
+                  "structural_role": "paired_region"
+                }
+              ],
+              "strand_id": "s09_bot",
+              "support_status": "explicit"
+            }
+          ],
+          "support_status": "explicit"
+        },
+        {
+          "discontinuities": [],
+          "molecule_type": "DNA",
+          "name": "Final SMART-seq3 5' fragment library",
+          "paired_regions": [
+            {
+              "paired_region_id": "s10_pr1",
+              "relationship": "reverse_complementary",
+              "side_1": {
+                "segment_ids": [
+                  "s10_t_p5",
+                  "s10_t_i5",
+                  "s10_t_s5",
+                  "s10_t_me",
+                  "s10_t_tag",
+                  "s10_t_umi",
+                  "s10_t_ggg",
+                  "s10_t_cdna",
+                  "s10_t_me_rc",
+                  "s10_t_s7_rc",
+                  "s10_t_i7",
+                  "s10_t_p7_rc"
+                ],
+                "strand_id": "s10_top"
+              },
+              "side_2": {
+                "segment_ids": [
+                  "s10_b_p7",
+                  "s10_b_i7",
+                  "s10_b_s7",
+                  "s10_b_me",
+                  "s10_b_cdna",
+                  "s10_b_ccc",
+                  "s10_b_umi",
+                  "s10_b_tag",
+                  "s10_b_me_rc",
+                  "s10_b_s5_rc",
+                  "s10_b_i5",
+                  "s10_b_p5_rc"
+                ],
+                "strand_id": "s10_bot"
+              },
+              "support_status": "derivable"
+            }
+          ],
+          "physical_state": "in solution",
+          "properties": [
+            "sequencing-ready Illumina library"
+          ],
+          "reference_strand_id": "s10_top",
+          "state_id": "s10_final_library_5p_fragment",
+          "strand_architecture": "double_stranded",
+          "strands": [
+            {
+              "molecule_type": "DNA",
+              "name": "top strand",
+              "orientation": "5_to_3",
+              "segments": [
+                {
+                  "oligo_derivations": [
+                    {
+                      "oligo_id": "oligo_nextera_xt_n_s5xx_index_primer",
+                      "orientation_to_source": "same_orientation"
+                    }
+                  ],
+                  "role": "Illumina P5",
+                  "segment_id": "s10_t_p5",
+                  "sequence": "AATGATACGGCGACCACCGAGATCTACAC",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "oligo_derivations": [
+                    {
+                      "oligo_id": "oligo_nextera_xt_n_s5xx_index_primer",
+                      "orientation_to_source": "same_orientation"
+                    }
+                  ],
+                  "placeholder": "[I5_INDEX:8]",
+                  "role": "i5 sample index",
+                  "segment_id": "s10_t_i5",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "oligo_derivations": [
+                    {
+                      "oligo_id": "oligo_nextera_n_s5xx_primer_entry_point_s5",
+                      "orientation_to_source": "same_orientation"
+                    }
+                  ],
+                  "role": "s5 entry point",
+                  "segment_id": "s10_t_s5",
+                  "sequence": "TCGTCGGCAGCGTC",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "oligo_derivations": [
+                    {
+                      "oligo_id": "oligo_nextera_tn5_binding_site_19_bp_mosaic_end_me",
+                      "orientation_to_source": "same_orientation"
+                    }
+                  ],
+                  "role": "Nextera ME",
+                  "segment_id": "s10_t_me",
+                  "sequence": "AGATGTGTATAAGAGACAG",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "oligo_derivations": [
+                    {
+                      "oligo_id": "oligo_smartseq3_n8_tso",
+                      "orientation_to_source": "same_orientation"
+                    }
+                  ],
+                  "role": "11-bp 5' fragment tag",
+                  "segment_id": "s10_t_tag",
+                  "sequence": "ATTGCGCAATG",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "oligo_derivations": [
+                    {
+                      "oligo_id": "oligo_smartseq3_n8_tso",
+                      "orientation_to_source": "same_orientation"
+                    }
+                  ],
+                  "placeholder": "[UMI:8]",
+                  "role": "8-bp UMI",
+                  "segment_id": "s10_t_umi",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "oligo_derivations": [
+                    {
+                      "oligo_id": "oligo_smartseq3_n8_tso",
+                      "orientation_to_source": "same_orientation"
+                    }
+                  ],
+                  "role": "template-switch GGG",
+                  "segment_id": "s10_t_ggg",
+                  "sequence": "GGG",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "placeholder": "[CDNA]",
+                  "role": "cDNA (5' transcript end)",
+                  "segment_id": "s10_t_cdna",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "oligo_derivations": [
+                    {
+                      "oligo_id": "oligo_nextera_tn5_binding_site_19_bp_mosaic_end_me",
+                      "orientation_to_source": "reverse_complement"
+                    }
+                  ],
+                  "role": "Nextera ME, reverse complement on this strand",
+                  "segment_id": "s10_t_me_rc",
+                  "sequence": "CTGTCTCTTATACACATCT",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "oligo_derivations": [
+                    {
+                      "oligo_id": "oligo_nextera_n7xx_primer_entry_point_s7",
+                      "orientation_to_source": "reverse_complement"
+                    }
+                  ],
+                  "role": "s7 entry point, reverse complement on this strand",
+                  "segment_id": "s10_t_s7_rc",
+                  "sequence": "CCGAGCCCACGAGAC",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "oligo_derivations": [
+                    {
+                      "oligo_id": "oligo_nextera_xt_n7xx_index_primer",
+                      "orientation_to_source": "reverse_complement"
+                    }
+                  ],
+                  "placeholder": "[I7_INDEX:8]",
+                  "role": "i7 sample index",
+                  "segment_id": "s10_t_i7",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "oligo_derivations": [
+                    {
+                      "oligo_id": "oligo_illumina_p7_adapter",
+                      "orientation_to_source": "reverse_complement"
+                    }
+                  ],
+                  "role": "Illumina P7, reverse complement on this strand",
+                  "segment_id": "s10_t_p7_rc",
+                  "sequence": "ATCTCGTATGCCGTCTTCTGCTTG",
+                  "structural_role": "paired_region"
+                }
+              ],
+              "sequence_architecture": "AATGATACGGCGACCACCGAGATCTACAC[I5_INDEX:8]TCGTCGGCAGCGTCAGATGTGTATAAGAGACAGATTGCGCAATG[UMI:8]GGG[CDNA]CTGTCTCTTATACACATCTCCGAGCCCACGAGAC[I7_INDEX:8]ATCTCGTATGCCGTCTTCTGCTTG",
+              "strand_id": "s10_top",
+              "support_status": "explicit"
+            },
+            {
+              "molecule_type": "DNA",
+              "name": "bottom strand",
+              "orientation": "5_to_3",
+              "segments": [
+                {
+                  "oligo_derivations": [
+                    {
+                      "oligo_id": "oligo_nextera_xt_n7xx_index_primer",
+                      "orientation_to_source": "same_orientation"
+                    }
+                  ],
+                  "role": "Illumina P7",
+                  "segment_id": "s10_b_p7",
+                  "sequence": "CAAGCAGAAGACGGCATACGAGAT",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "oligo_derivations": [
+                    {
+                      "oligo_id": "oligo_nextera_xt_n7xx_index_primer",
+                      "orientation_to_source": "same_orientation"
+                    }
+                  ],
+                  "placeholder": "[I7_INDEX:8]",
+                  "role": "i7 sample index",
+                  "segment_id": "s10_b_i7",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "oligo_derivations": [
+                    {
+                      "oligo_id": "oligo_nextera_n7xx_primer_entry_point_s7",
+                      "orientation_to_source": "same_orientation"
+                    }
+                  ],
+                  "role": "s7 entry point",
+                  "segment_id": "s10_b_s7",
+                  "sequence": "GTCTCGTGGGCTCGG",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "role": "Nextera ME",
+                  "segment_id": "s10_b_me",
+                  "sequence": "AGATGTGTATAAGAGACAG",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "placeholder": "[CDNA]",
+                  "role": "cDNA",
+                  "segment_id": "s10_b_cdna",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "role": "CCC complementary to the template-switch GGG",
+                  "segment_id": "s10_b_ccc",
+                  "sequence": "CCC",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "placeholder": "[UMI:8]",
+                  "role": "8-bp UMI, reverse complement on this strand",
+                  "segment_id": "s10_b_umi",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "role": "11-bp tag, reverse complement on this strand",
+                  "segment_id": "s10_b_tag",
+                  "sequence": "CATTGCGCAAT",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "role": "Nextera ME, reverse complement on this strand",
+                  "segment_id": "s10_b_me_rc",
+                  "sequence": "CTGTCTCTTATACACATCT",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "role": "s5 entry point, reverse complement on this strand",
+                  "segment_id": "s10_b_s5_rc",
+                  "sequence": "GACGCTGCCGACGA",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "placeholder": "[I5_INDEX:8]",
+                  "role": "i5 sample index",
+                  "segment_id": "s10_b_i5",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "role": "Illumina P5, reverse complement on this strand",
+                  "segment_id": "s10_b_p5_rc",
+                  "sequence": "GTGTAGATCTCGGTGGTCGCCGTATCATT",
+                  "structural_role": "paired_region"
+                }
+              ],
+              "sequence_architecture": "CAAGCAGAAGACGGCATACGAGAT[I7_INDEX:8]GTCTCGTGGGCTCGGAGATGTGTATAAGAGACAG[CDNA]CCC[UMI:8]CATTGCGCAATCTGTCTCTTATACACATCTGACGCTGCCGACGA[I5_INDEX:8]GTGTAGATCTCGGTGGTCGCCGTATCATT",
+              "strand_id": "s10_bot",
+              "support_status": "explicit"
+            }
+          ],
+          "support_status": "explicit"
+        },
+        {
+          "discontinuities": [],
+          "molecule_type": "DNA",
+          "name": "Final SMART-seq3 internal fragment library",
+          "paired_regions": [
+            {
+              "paired_region_id": "s11_pr1",
+              "relationship": "reverse_complementary",
+              "side_1": {
+                "segment_ids": [
+                  "s11_t_p5",
+                  "s11_t_i5",
+                  "s11_t_s5",
+                  "s11_t_me",
+                  "s11_t_cdna",
+                  "s11_t_me_rc",
+                  "s11_t_s7_rc",
+                  "s11_t_i7",
+                  "s11_t_p7_rc"
+                ],
+                "strand_id": "s11_top"
+              },
+              "side_2": {
+                "segment_ids": [
+                  "s11_b_p7",
+                  "s11_b_i7",
+                  "s11_b_s7",
+                  "s11_b_me",
+                  "s11_b_cdna",
+                  "s11_b_me_rc",
+                  "s11_b_s5_rc",
+                  "s11_b_i5",
+                  "s11_b_p5_rc"
+                ],
+                "strand_id": "s11_bot"
+              },
+              "support_status": "derivable"
+            }
+          ],
+          "physical_state": "in solution",
+          "properties": [
+            "sequencing-ready Illumina library"
+          ],
+          "reference_strand_id": "s11_top",
+          "state_id": "s11_final_library_internal_fragment",
+          "strand_architecture": "double_stranded",
+          "strands": [
+            {
+              "molecule_type": "DNA",
+              "name": "top strand",
+              "orientation": "5_to_3",
+              "segments": [
+                {
+                  "oligo_derivations": [
+                    {
+                      "oligo_id": "oligo_nextera_xt_n_s5xx_index_primer",
+                      "orientation_to_source": "same_orientation"
+                    }
+                  ],
+                  "role": "Illumina P5",
+                  "segment_id": "s11_t_p5",
+                  "sequence": "AATGATACGGCGACCACCGAGATCTACAC",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "oligo_derivations": [
+                    {
+                      "oligo_id": "oligo_nextera_xt_n_s5xx_index_primer",
+                      "orientation_to_source": "same_orientation"
+                    }
+                  ],
+                  "placeholder": "[I5_INDEX:8]",
+                  "role": "i5 sample index",
+                  "segment_id": "s11_t_i5",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "oligo_derivations": [
+                    {
+                      "oligo_id": "oligo_nextera_n_s5xx_primer_entry_point_s5",
+                      "orientation_to_source": "same_orientation"
+                    }
+                  ],
+                  "role": "s5 entry point",
+                  "segment_id": "s11_t_s5",
+                  "sequence": "TCGTCGGCAGCGTC",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "oligo_derivations": [
+                    {
+                      "oligo_id": "oligo_nextera_tn5_binding_site_19_bp_mosaic_end_me",
+                      "orientation_to_source": "same_orientation"
+                    }
+                  ],
+                  "role": "Nextera ME",
+                  "segment_id": "s11_t_me",
+                  "sequence": "AGATGTGTATAAGAGACAG",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "placeholder": "[CDNA]",
+                  "role": "cDNA (internal transcript fragment)",
+                  "segment_id": "s11_t_cdna",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "oligo_derivations": [
+                    {
+                      "oligo_id": "oligo_nextera_tn5_binding_site_19_bp_mosaic_end_me",
+                      "orientation_to_source": "reverse_complement"
+                    }
+                  ],
+                  "role": "Nextera ME, reverse complement on this strand",
+                  "segment_id": "s11_t_me_rc",
+                  "sequence": "CTGTCTCTTATACACATCT",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "oligo_derivations": [
+                    {
+                      "oligo_id": "oligo_nextera_n7xx_primer_entry_point_s7",
+                      "orientation_to_source": "reverse_complement"
+                    }
+                  ],
+                  "role": "s7 entry point, reverse complement on this strand",
+                  "segment_id": "s11_t_s7_rc",
+                  "sequence": "CCGAGCCCACGAGAC",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "oligo_derivations": [
+                    {
+                      "oligo_id": "oligo_nextera_xt_n7xx_index_primer",
+                      "orientation_to_source": "reverse_complement"
+                    }
+                  ],
+                  "placeholder": "[I7_INDEX:8]",
+                  "role": "i7 sample index",
+                  "segment_id": "s11_t_i7",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "oligo_derivations": [
+                    {
+                      "oligo_id": "oligo_illumina_p7_adapter",
+                      "orientation_to_source": "reverse_complement"
+                    }
+                  ],
+                  "role": "Illumina P7, reverse complement on this strand",
+                  "segment_id": "s11_t_p7_rc",
+                  "sequence": "ATCTCGTATGCCGTCTTCTGCTTG",
+                  "structural_role": "paired_region"
+                }
+              ],
+              "sequence_architecture": "AATGATACGGCGACCACCGAGATCTACAC[I5_INDEX:8]TCGTCGGCAGCGTCAGATGTGTATAAGAGACAG[CDNA]CTGTCTCTTATACACATCTCCGAGCCCACGAGAC[I7_INDEX:8]ATCTCGTATGCCGTCTTCTGCTTG",
+              "strand_id": "s11_top",
+              "support_status": "explicit"
+            },
+            {
+              "molecule_type": "DNA",
+              "name": "bottom strand",
+              "orientation": "5_to_3",
+              "segments": [
+                {
+                  "oligo_derivations": [
+                    {
+                      "oligo_id": "oligo_nextera_xt_n7xx_index_primer",
+                      "orientation_to_source": "same_orientation"
+                    }
+                  ],
+                  "role": "Illumina P7",
+                  "segment_id": "s11_b_p7",
+                  "sequence": "CAAGCAGAAGACGGCATACGAGAT",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "oligo_derivations": [
+                    {
+                      "oligo_id": "oligo_nextera_xt_n7xx_index_primer",
+                      "orientation_to_source": "same_orientation"
+                    }
+                  ],
+                  "placeholder": "[I7_INDEX:8]",
+                  "role": "i7 sample index",
+                  "segment_id": "s11_b_i7",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "oligo_derivations": [
+                    {
+                      "oligo_id": "oligo_nextera_n7xx_primer_entry_point_s7",
+                      "orientation_to_source": "same_orientation"
+                    }
+                  ],
+                  "role": "s7 entry point",
+                  "segment_id": "s11_b_s7",
+                  "sequence": "GTCTCGTGGGCTCGG",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "role": "Nextera ME",
+                  "segment_id": "s11_b_me",
+                  "sequence": "AGATGTGTATAAGAGACAG",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "placeholder": "[CDNA]",
+                  "role": "cDNA",
+                  "segment_id": "s11_b_cdna",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "role": "Nextera ME, reverse complement on this strand",
+                  "segment_id": "s11_b_me_rc",
+                  "sequence": "CTGTCTCTTATACACATCT",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "role": "s5 entry point, reverse complement on this strand",
+                  "segment_id": "s11_b_s5_rc",
+                  "sequence": "GACGCTGCCGACGA",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "placeholder": "[I5_INDEX:8]",
+                  "role": "i5 sample index",
+                  "segment_id": "s11_b_i5",
+                  "structural_role": "paired_region"
+                },
+                {
+                  "role": "Illumina P5, reverse complement on this strand",
+                  "segment_id": "s11_b_p5_rc",
+                  "sequence": "GTGTAGATCTCGGTGGTCGCCGTATCATT",
+                  "structural_role": "paired_region"
+                }
+              ],
+              "sequence_architecture": "CAAGCAGAAGACGGCATACGAGAT[I7_INDEX:8]GTCTCGTGGGCTCGGAGATGTGTATAAGAGACAG[CDNA]CTGTCTCTTATACACATCTGACGCTGCCGACGA[I5_INDEX:8]GTGTAGATCTCGGTGGTCGCCGTATCATT",
+              "strand_id": "s11_bot",
+              "support_status": "explicit"
+            }
+          ],
+          "support_status": "explicit"
+        }
+      ],
+      "transitions": [
+        {
+          "carried_forward_product_ids": [
+            "s02_rt_hybrid"
+          ],
+          "discarded_product_ids": [],
+          "major_reagents": [
+            {
+              "name": "Maxima H Minus reverse transcriptase",
+              "role": "reverse transcriptase"
+            },
+            {
+              "name": "NaCl",
+              "role": "salt"
+            },
+            {
+              "name": "PEG (5%)",
+              "role": "crowding reagent"
+            }
+          ],
+          "oligo_ids": [
+            "oligo_smartseq3_oligodt30vn"
+          ],
+          "operation": "reverse_transcription",
+          "operation_detail": "Smartseq3_OligodT30VN anneals to the poly(A) tail and is extended by Maxima H Minus reverse transcriptase (NaCl instead of KCl, 5% PEG as crowding reagent)",
+          "product_state_ids": [
+            "s02_rt_hybrid"
+          ],
+          "substrate_state_ids": [
+            "s01_mrna"
+          ],
+          "support_status": "explicit",
+          "transition_id": "tr01_reverse_transcription"
+        },
+        {
+          "carried_forward_product_ids": [
+            "s03_rt_hybrid_c_tailed"
+          ],
+          "discarded_product_ids": [],
+          "major_reagents": [
+            {
+              "name": "Maxima H Minus reverse transcriptase",
+              "role": "terminal transferase activity"
+            }
+          ],
+          "oligo_ids": [],
+          "operation": "extension",
+          "operation_detail": "terminal transferase activity of the MMLV-type reverse transcriptase adds untemplated C nucleotides to the cDNA 3' end",
+          "product_state_ids": [
+            "s03_rt_hybrid_c_tailed"
+          ],
+          "substrate_state_ids": [
+            "s02_rt_hybrid"
+          ],
+          "support_status": "explicit",
+          "transition_id": "tr02_untemplated_c_addition"
+        },
+        {
+          "carried_forward_product_ids": [
+            "s04_template_switched_cdna"
+          ],
+          "discarded_product_ids": [],
+          "major_reagents": [
+            {
+              "name": "Maxima H Minus reverse transcriptase",
+              "role": "reverse transcriptase"
+            }
+          ],
+          "oligo_ids": [
+            "oligo_smartseq3_n8_tso"
+          ],
+          "operation": "strand_synthesis",
+          "operation_detail": "the rGrGrG end of Smartseq3_N8_TSO anneals to the untemplated Cs; the reverse transcriptase switches template and copies the TSO, appending the complement of the 11-bp tag and 8-bp UMI to the cDNA 3' end",
+          "product_state_ids": [
+            "s04_template_switched_cdna"
+          ],
+          "substrate_state_ids": [
+            "s03_rt_hybrid_c_tailed"
+          ],
+          "support_status": "explicit",
+          "transition_id": "tr03_template_switching"
+        },
+        {
+          "carried_forward_product_ids": [
+            "s05_amplified_cdna"
+          ],
+          "discarded_product_ids": [],
+          "major_reagents": [],
+          "oligo_ids": [
+            "oligo_fwd_pcr_primer",
+            "oligo_rev_pcr_primer"
+          ],
+          "operation": "pcr",
+          "operation_detail": "cDNA amplification with Fwd_PCR_primer and Rev_PCR_primer, which also completes the second strand; subsequent purification of the amplified cDNA is folded into this transition",
+          "product_state_ids": [
+            "s05_amplified_cdna"
+          ],
+          "substrate_state_ids": [
+            "s04_template_switched_cdna"
+          ],
+          "support_status": "explicit",
+          "transition_id": "tr04_cdna_amplification"
+        },
+        {
+          "carried_forward_product_ids": [
+            "s06_tagmented_5p_fragment",
+            "s07_tagmented_internal_fragment"
+          ],
+          "discarded_product_ids": [],
+          "major_reagents": [
+            {
+              "name": "Nextera Tn5 transposome (s5 and s7 mosaic-end adapters)",
+              "role": "transposase"
+            }
+          ],
+          "oligo_ids": [
+            "oligo_nextera_tn5_binding_site_19_bp_mosaic_end_me",
+            "oligo_nextera_n_s5xx_primer_entry_point_s5",
+            "oligo_nextera_n7xx_primer_entry_point_s7"
+          ],
+          "operation": "tagmentation",
+          "operation_detail": "Nextera Tn5 transposome tagments the amplified cDNA, leaving a 9-bp gap at each insertion; only fragments carrying different ends (s5/s7) are amplifiable, so the s5/s5 and s7/s7 products described in the legacy step are not carried forward",
+          "product_state_ids": [
+            "s06_tagmented_5p_fragment",
+            "s07_tagmented_internal_fragment"
+          ],
+          "substrate_state_ids": [
+            "s05_amplified_cdna"
+          ],
+          "support_status": "explicit",
+          "transition_id": "tr05_tagmentation"
+        },
+        {
+          "carried_forward_product_ids": [
+            "s08_gap_filled_5p_fragment"
+          ],
+          "discarded_product_ids": [],
+          "major_reagents": [],
+          "oligo_ids": [],
+          "operation": "extension",
+          "operation_detail": "72 degree gap fill-in, the first cycle of the Nextera PCR",
+          "product_state_ids": [
+            "s08_gap_filled_5p_fragment"
+          ],
+          "substrate_state_ids": [
+            "s06_tagmented_5p_fragment"
+          ],
+          "support_status": "explicit",
+          "transition_id": "tr06_gap_fill_5p_fragment"
+        },
+        {
+          "carried_forward_product_ids": [
+            "s09_gap_filled_internal_fragment"
+          ],
+          "discarded_product_ids": [],
+          "major_reagents": [],
+          "oligo_ids": [],
+          "operation": "extension",
+          "operation_detail": "72 degree gap fill-in, the first cycle of the Nextera PCR",
+          "product_state_ids": [
+            "s09_gap_filled_internal_fragment"
+          ],
+          "substrate_state_ids": [
+            "s07_tagmented_internal_fragment"
+          ],
+          "support_status": "explicit",
+          "transition_id": "tr07_gap_fill_internal_fragment"
+        },
+        {
+          "carried_forward_product_ids": [
+            "s10_final_library_5p_fragment"
+          ],
+          "discarded_product_ids": [],
+          "major_reagents": [],
+          "oligo_ids": [
+            "oligo_nextera_xt_n_s5xx_index_primer",
+            "oligo_nextera_xt_n7xx_index_primer"
+          ],
+          "operation": "pcr",
+          "operation_detail": "amplification with Nextera (XT) N/S5xx and N7xx index primers adds P5-i5 and i7-P7; final cleanup is folded into this transition",
+          "product_state_ids": [
+            "s10_final_library_5p_fragment"
+          ],
+          "substrate_state_ids": [
+            "s08_gap_filled_5p_fragment"
+          ],
+          "support_status": "explicit",
+          "transition_id": "tr08_index_pcr_5p_fragment"
+        },
+        {
+          "carried_forward_product_ids": [
+            "s11_final_library_internal_fragment"
+          ],
+          "discarded_product_ids": [],
+          "major_reagents": [],
+          "oligo_ids": [
+            "oligo_nextera_xt_n_s5xx_index_primer",
+            "oligo_nextera_xt_n7xx_index_primer"
+          ],
+          "operation": "pcr",
+          "operation_detail": "amplification with Nextera (XT) N/S5xx and N7xx index primers adds P5-i5 and i7-P7; final cleanup is folded into this transition",
+          "product_state_ids": [
+            "s11_final_library_internal_fragment"
+          ],
+          "substrate_state_ids": [
+            "s09_gap_filled_internal_fragment"
+          ],
+          "support_status": "explicit",
+          "transition_id": "tr09_index_pcr_internal_fragment"
+        }
+      ],
+      "workflow_id": "smart_seq3_library_generation"
+    }
+  ]
+}

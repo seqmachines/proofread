@@ -1,0 +1,419 @@
+"use client";
+// components/Workbench.tsx — the run page, laid out per SPEC.md §5.0:
+// canvas ~65% | agent trace ~35%, with a fixed bottom strip (chat row + status bar).
+// Source of events: the fixture for /runs/fixture (offline demo), otherwise the live
+// backend stream (lib/api subscribe). Both feed fold(events[0:cursor]); the header
+// keeps the replay controls. Node click → inspector drawer over the canvas's right edge.
+import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import dynamic from "next/dynamic";
+import { useRouter } from "next/navigation";
+import type { ErrorType, GtDiff, Protocol, ReviewDecision, ReviewInput, Reviewer, RunEvent } from "@/lib/events";
+import { fold, type Patch } from "@/lib/reducer";
+import { fixtureName, useFixtureEvents } from "@/lib/fixture";
+import { useRunEvents } from "@/lib/useRunEvents";
+import { type ConnectionStatus, getGtDiff, getHarness, getProtocols, isAuthError, postReview, sendMessage, startRun } from "@/lib/api";
+import { toast } from "@/lib/toast";
+import { type ReviewerIdentity, getReviewer, setReviewer, useReviewer } from "@/lib/reviewer";
+import { offlineApply, offlinePropose, offlineReview } from "@/lib/offlineEditor";
+import { usePlayback } from "@/lib/usePlayback";
+import { cx } from "@/lib/cx";
+import { Playback } from "./Playback";
+import { Trace } from "./Trace";
+import { StatusBar } from "./StatusBar";
+import { Inspector } from "./Inspector";
+import { Chat } from "./Chat";
+import { ReviewerPrompt } from "./ReviewerPrompt";
+
+// Client-only: React Flow resolves colorMode="system" in the browser, so SSR would
+// hydrate "light" against "dark" and warn. Nothing on the canvas is server-known anyway.
+const Canvas = dynamic(() => import("./Canvas").then((m) => m.Canvas), { ssr: false });
+
+const btn =
+  "h-6 rounded border border-line bg-panel px-2 font-mono text-[11px] leading-5 text-foreground hover:border-accent disabled:opacity-40 disabled:hover:border-line";
+
+const diffIds = (list: unknown[] | undefined) =>
+  (list ?? []).flatMap((x) => (typeof x === "string" ? [x] : typeof x === "object" && x !== null && typeof (x as { id?: unknown }).id === "string" ? [(x as { id: string }).id] : []));
+
+// Edge entries look like {type, from, to}; both ends may name a state.
+const edgeEnds = (list: unknown[] | undefined) =>
+  (list ?? []).flatMap((x) => {
+    if (typeof x !== "object" || x === null) return [];
+    const e = x as { from?: unknown; to?: unknown; source?: unknown; target?: unknown };
+    return [e.from, e.to, e.source, e.target].filter((v): v is string => typeof v === "string");
+  });
+
+const CONN: Record<ConnectionStatus, { text: string; cls: string }> = {
+  idle: { text: "—", cls: "text-muted" },
+  connecting: { text: "connecting…", cls: "text-muted" },
+  live: { text: "● live", cls: "text-emerald-600 dark:text-emerald-400" },
+  reconnecting: { text: "○ reconnecting…", cls: "text-amber-600 dark:text-amber-400" },
+  polling: { text: "● polling", cls: "text-muted" },
+  closed: { text: "closed", cls: "text-muted" },
+  error: { text: "● offline", cls: "text-rose-600 dark:text-rose-400" },
+};
+
+function useProtocols(): Protocol[] | null {
+  const [protocols, setProtocols] = useState<Protocol[] | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    getProtocols()
+      .then((p) => {
+        if (!cancelled) setProtocols(p);
+      })
+      .catch(() => {
+        /* backend offline: has_gt stays unknown */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return protocols;
+}
+
+function useActiveHarness(): string | null {
+  const [id, setId] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    getHarness()
+      .then((h) => {
+        if (!cancelled) setId(h._id);
+      })
+      .catch(() => {
+        /* label falls back to "active" */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return id;
+}
+
+/** Asks for name + token on the first write (§6), keeps them in localStorage, and re-asks
+ *  when the backend rejects the token. `withIdentity` runs a write with that guarantee. */
+function useIdentity() {
+  const reviewer = useReviewer();
+  const [prompt, setPrompt] = useState<{ reason: string | null; resolve: (r: ReviewerIdentity | null) => void } | null>(null);
+  const ask = (reason: string | null) =>
+    new Promise<ReviewerIdentity | null>((resolve) => setPrompt({ reason, resolve }));
+  const withIdentity = async <T,>(write: () => Promise<T>): Promise<T> => {
+    if (!getReviewer()) {
+      const r = await ask(null);
+      if (!r) throw new Error("cancelled — no reviewer identity");
+      setReviewer(r);
+    }
+    try {
+      return await write();
+    } catch (e) {
+      if (!isAuthError(e)) throw e;
+      const r = await ask("token rejected by the backend — check REVIEW_TOKENS");
+      if (!r) throw e;
+      setReviewer(r);
+      return write();
+    }
+  };
+  const asReviewer = (): Reviewer => ({ id: reviewer?.name ?? "curator", name: reviewer?.name ?? "curator", role: "curator" });
+  const modal = prompt ? (
+    <ReviewerPrompt
+      initial={getReviewer()}
+      reason={prompt.reason}
+      onSave={(r) => {
+        prompt.resolve(r);
+        setPrompt(null);
+      }}
+      onCancel={() => {
+        prompt.resolve(null);
+        setPrompt(null);
+      }}
+    />
+  ) : null;
+  return { reviewer, withIdentity, asReviewer, modal };
+}
+
+export function Workbench({ runId }: { runId: string }) {
+  const router = useRouter();
+  const identity = useIdentity();
+  const fixtureKey = fixtureName(runId); // "" | "<name>" | null (live)
+  const isFixture = fixtureKey !== null;
+  const fixture = useFixtureEvents(fixtureKey);
+  // Replay: live runs resubscribe from seq 0 with speed=8 (server-paced), fixtures restart.
+  const [replayKey, setReplayKey] = useState(0);
+  const live = useRunEvents(isFixture ? null : runId, { speed: replayKey > 0 ? 8 : 1, key: replayKey });
+  // Offline chat: the local editor appends its events after the fixture's.
+  const [extra, setExtra] = useState<RunEvent[]>([]);
+  const events = useMemo(
+    () => (isFixture ? [...fixture.events, ...extra] : live.events),
+    [isFixture, fixture.events, extra, live.events],
+  );
+  const error = isFixture ? fixture.error : live.error;
+  const protocols = useProtocols();
+
+  const pb = usePlayback(events.length, { autoplay: true });
+  const ui = useMemo(() => fold(events.slice(0, pb.cursor)), [events, pb.cursor]);
+  const full = useMemo(() => fold(events), [events]); // complete state, for the offline editor and reviews
+  const current = pb.cursor > 0 ? events[pb.cursor - 1] : undefined;
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selected = selectedId ? ui.nodes.find((n) => n.id === selectedId) : undefined;
+
+  const onSend = async (text: string): Promise<string | void> => {
+    if (isFixture) {
+      setExtra((x) => [...x, ...offlinePropose(full, text, full.lastSeq + 1)]);
+      pb.play();
+      return;
+    }
+    const res = await identity.withIdentity(() => sendMessage(runId, text));
+    if (res.queued) return "queued — the agent drains messages at its next step";
+  };
+  // Applying a patch card = a `modify` review (§5 step 1 repairs, step 2 signals). The
+  // reviewer chooses the §2.4 error category; the reviewer identity comes from the token.
+  const onApply = async (patch: Patch, systematic: boolean, errorType: ErrorType) => {
+    const target = full.nodes.find((n) => n.id === patch.target)?.data.state;
+    const review: ReviewInput = {
+      run_id: full.runId ?? runId,
+      workflow_revision: full.workflowRevision,
+      target_id: patch.target,
+      decision: "modify",
+      before: patch.before ?? target ?? {},
+      after: patch.after,
+      error_type: errorType,
+      note: patch.reason,
+      systematic,
+    };
+    if (isFixture) {
+      // review_recorded first, then the repair as the backend would emit it (state_revised + patch_applied).
+      const seq = full.lastSeq + 1;
+      const { events: recorded, review_id } = offlineReview(full, { ...review, after: undefined }, identity.asReviewer(), seq);
+      const modified = patch.after ? { ...patch, after: { ...patch.after, review_status: "modified" as const } } : patch;
+      const applied = offlineApply(full, modified, seq + recorded.length).map((e) => (e.t === "state_revised" ? { ...e, caused_by: review_id } : e));
+      setExtra((x) => [...x, ...recorded, ...applied]);
+      pb.play();
+      setPendingModify(null);
+      return;
+    }
+    const res = await identity.withIdentity(() => postReview(runId, review));
+    setPendingModify(null);
+    toast(`review ${res.review_id} recorded · rev ${res.workflow_revision}${res.derived?.signal_id ? ` · signal ${res.derived.signal_id}` : ""}`, "info", 4000);
+  };
+
+  // Inspector decisions other than modify. error_type: required for reject, null otherwise.
+  const onReview = async (decision: Exclude<ReviewDecision, "modify">, note: string, systematic: boolean, errorType: ErrorType | null) => {
+    if (!selected) return;
+    const review: ReviewInput = {
+      run_id: full.runId ?? runId,
+      workflow_revision: full.workflowRevision,
+      target_id: selected.id,
+      decision,
+      before: selected.data.state,
+      after: decision === "reject" ? null : undefined,
+      error_type: decision === "reject" ? errorType : null,
+      note,
+      systematic,
+    };
+    if (isFixture) {
+      const { events: evs } = offlineReview(full, review, identity.asReviewer(), full.lastSeq + 1);
+      setExtra((x) => [...x, ...evs]);
+      pb.play();
+      if (decision === "reject") setSelectedId(null);
+      return;
+    }
+    const res = await identity.withIdentity(() => postReview(runId, review));
+    toast(`review ${res.review_id} recorded${res.derived?.signal_id ? ` · signal ${res.derived.signal_id}` : ""}`, "info", 4000);
+    if (decision === "reject") setSelectedId(null);
+  };
+
+  // modify → remember the chosen category, seed the chat with the target and note; the
+  // patch card's apply records the review.
+  const [chatText, setChatText] = useState("");
+  const [chatFocus, setChatFocus] = useState(0);
+  const [pendingModify, setPendingModify] = useState<{ target: string; error_type: ErrorType } | null>(null);
+  const onModify = (note: string, errorType: ErrorType) => {
+    if (!selected) return;
+    setPendingModify({ target: selected.id, error_type: errorType });
+    setChatText(note ? `modify ${selected.id}: ${note}` : `modify ${selected.id}: `);
+    setChatFocus((k) => k + 1);
+  };
+
+  const { restart, setSpeed } = pb;
+  const replay = useCallback(() => {
+    if (!isFixture) setReplayKey((k) => k + 1);
+    setSpeed(8);
+    restart();
+  }, [isFixture, restart, setSpeed]);
+
+  // Keyboard: r = replay, esc = close the inspector (ignored while typing).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
+      if (e.key === "r" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        replay();
+      } else if (e.key === "Escape") {
+        setSelectedId(null);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [replay]);
+  const protocol = protocols?.find((p) => p.id === ui.protocolId);
+  const hasGt = protocols === null ? null : (protocol?.has_gt ?? false);
+  const conn = isFixture ? { text: "offline replay", cls: "text-muted" } : CONN[live.status];
+  const activeHarness = useActiveHarness();
+
+  // After run_finished: run again on the active harness, and compare with ground truth.
+  const finished = ui.status === "done" || ui.status === "failed";
+  const [starting, setStarting] = useState(false);
+  const runAgain = async () => {
+    if (!ui.protocolId || starting) return;
+    setStarting(true);
+    try {
+      const { run_id } = await startRun(ui.protocolId, { executor: "codex" });
+      router.push(`/runs/${encodeURIComponent(run_id)}`);
+    } catch (e) {
+      toast(`run again failed: ${e instanceof Error ? e.message : String(e)}`);
+      setStarting(false);
+    }
+  };
+  const [gtDiff, setGtDiff] = useState<GtDiff | null>(null);
+  const [comparing, setComparing] = useState(false);
+  const compareGt = async () => {
+    if (gtDiff) {
+      setGtDiff(null);
+      return;
+    }
+    setComparing(true);
+    try {
+      setGtDiff(await getGtDiff(runId));
+    } catch (e) {
+      toast(`gt-diff: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setComparing(false);
+    }
+  };
+  // Highlight states the GT lacks and states on edges the GT lacks.
+  const mismatch = useMemo(() => {
+    if (!gtDiff) return null;
+    const ids = new Set(ui.nodes.map((n) => n.id));
+    return new Set([...diffIds(gtDiff.extra_states), ...edgeEnds(gtDiff.extra_edges)].filter((id) => ids.has(id)));
+  }, [gtDiff, ui.nodes]);
+
+  return (
+    <div className="flex h-dvh flex-col bg-background text-foreground">
+      <header className="flex h-9 shrink-0 items-center gap-2 border-b border-line px-3 text-[12px]">
+        <Link href="/" className="font-mono font-semibold tracking-tight">
+          proofread
+        </Link>
+        <span className="text-muted">/</span>
+        <span className="max-w-[7rem] truncate font-mono text-muted" title={runId}>
+          {runId}
+        </span>
+        <span className={cx("font-mono text-[11px]", conn.cls)} title={live.detail ?? undefined}>
+          {conn.text}
+          {live.detail && live.status === "reconnecting" ? ` ${live.detail}` : ""}
+        </span>
+        <Link href="/queue" className="ml-3 font-mono text-[11px] text-muted underline decoration-line hover:text-foreground">
+          queue
+        </Link>
+        <Link href="/harness" className="font-mono text-[11px] text-muted underline decoration-line hover:text-foreground">
+          harness
+        </Link>
+        <Link href="/benchmark" className="font-mono text-[11px] text-muted underline decoration-line hover:text-foreground">
+          benchmark
+        </Link>
+        {identity.reviewer && (
+          <button
+            className="max-w-[9rem] truncate font-mono text-[11px] text-muted hover:text-foreground"
+            title={`reviewing as ${identity.reviewer.name} · click to change name or token`}
+            onClick={() => setReviewer(null)}
+            data-reviewer={identity.reviewer.name}
+          >
+            · {identity.reviewer.name}
+          </button>
+        )}
+        {finished && protocol && (
+          <span className="ml-3 flex items-center gap-1.5" data-after-run>
+            <button className={btn} onClick={() => void runAgain()} disabled={starting} title={`POST /runs {protocol_id: ${ui.protocolId}}`}>
+              {starting ? "starting…" : `run again on ${activeHarness ?? "active harness"}`}
+            </button>
+            {hasGt && !isFixture && (
+              <button
+                className={cx(btn, gtDiff && "border-amber-500 text-amber-600 dark:text-amber-400")}
+                onClick={() => void compareGt()}
+                disabled={comparing}
+                title="GET /runs/{id}/gt-diff — highlights states the ground truth does not have"
+              >
+                {comparing ? "comparing…" : gtDiff ? `GT: ${diffIds(gtDiff.missing_states).length} missing · ${diffIds(gtDiff.extra_states).length} extra · ${(gtDiff.missing_edges ?? []).length}/${(gtDiff.extra_edges ?? []).length} edges ✕` : "compare with ground truth"}
+              </button>
+            )}
+          </span>
+        )}
+        <div className="ml-auto">
+          <Playback pb={pb} current={current} onReplay={replay} />
+        </div>
+      </header>
+
+      {error && (
+        <div className="border-b border-rose-600/40 bg-rose-600/10 px-3 py-1 font-mono text-[11px] text-rose-600 dark:text-rose-400">
+          {error}
+          {!isFixture && (
+            <>
+              {" · "}
+              <Link href="/runs/fixture" className="underline">
+                open the offline fixture
+              </Link>
+            </>
+          )}
+        </div>
+      )}
+
+      <div className="flex min-h-0 flex-1">
+        <div className="relative min-w-0 flex-1">
+          <Canvas
+            nodes={ui.nodes}
+            edges={ui.edges}
+            selectedId={selected ? selectedId : null}
+            mismatch={mismatch}
+            tick={ui.lastSeq}
+            onNodeClick={(n) => setSelectedId(n.id)}
+            onPaneClick={() => setSelectedId(null)}
+          />
+          {ui.nodes.length === 0 && !error && (
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center" data-empty>
+              <span className="rounded border border-line bg-panel px-3 py-1.5 font-mono text-[11px] text-muted">
+                {events.length === 0
+                  ? isFixture
+                    ? "loading fixture…"
+                    : live.status === "error"
+                      ? "stream offline"
+                      : "connecting to the run…"
+                  : ui.status === "done" || ui.status === "failed"
+                    ? "this run committed no states"
+                    : `no states yet — ${ui.trace.at(-1)?.goal ?? "the agent is reading the protocol"}`}
+              </span>
+            </div>
+          )}
+          {selected && (
+            <Inspector
+              key={selected.id}
+              node={selected}
+              ui={ui}
+              runId={isFixture ? null : runId}
+              hasGt={hasGt}
+              gtDiff={gtDiff}
+              onReview={onReview}
+              onModify={onModify}
+              onClose={() => setSelectedId(null)}
+            />
+          )}
+        </div>
+        <Trace ui={ui} className="w-[35%] min-w-[320px] shrink-0 border-l border-line" />
+      </div>
+
+      <div className="shrink-0">
+        <Chat ui={ui} offline={isFixture} text={chatText} onText={setChatText} focusKey={chatFocus} onSend={onSend} onApply={onApply} pendingErrorType={pendingModify} />
+        <StatusBar ui={ui} />
+      </div>
+      {identity.modal}
+    </div>
+  );
+}

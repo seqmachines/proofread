@@ -1,0 +1,8 @@
+# Build from backend/. Only runtime source and dependencies enter the context.
+*
+!Dockerfile
+!.dockerignore
+!requirements.txt
+!*.py
+!base_prompt.md
+check_*.py

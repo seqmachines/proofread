@@ -1,0 +1,65 @@
+@import "tailwindcss";
+
+/* Scientific workbench: quiet surfaces, one accent, exact §2.7 segment colors in lib/colors.ts. */
+:root {
+  --background: #f7f7f6;
+  --foreground: #1a1a1a;
+  --panel: #ffffff;
+  --line: #d6d6d3;
+  --muted: #6b6b68;
+  --accent: #2563eb;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0c0c0d;
+    --foreground: #e8e8e6;
+    --panel: #161618;
+    --line: #2c2c2f;
+    --muted: #8d8d8a;
+    --accent: #60a5fa;
+  }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-panel: var(--panel);
+  --color-line: var(--line);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+}
+
+/* React Flow follows the same tokens in both themes (html prefix outranks the library's .dark rules). */
+html .react-flow,
+html .react-flow.dark {
+  --xy-background-color-default: var(--background);
+  --xy-background-pattern-dots-color-default: color-mix(in srgb, var(--muted) 35%, transparent);
+  --xy-edge-stroke-default: var(--muted);
+  --xy-edge-stroke-selected-default: var(--accent);
+  --xy-controls-button-background-color-default: var(--panel);
+  --xy-controls-button-background-color-hover-default: var(--background);
+  --xy-controls-button-color-default: var(--foreground);
+  --xy-controls-button-border-color-default: var(--line);
+  --xy-controls-box-shadow-default: none;
+}
+
+/* Inspector drawer slides over the canvas's right edge. */
+@keyframes drawer-in {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}

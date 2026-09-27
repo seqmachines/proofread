@@ -1,0 +1,9 @@
+# Upload only the files needed by Docker; credentials stay on this machine.
+*
+!Dockerfile
+!.dockerignore
+!.gcloudignore
+!requirements.txt
+!*.py
+!base_prompt.md
+check_*.py

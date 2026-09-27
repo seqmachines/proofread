@@ -1,0 +1,6 @@
+{
+  "id": "sci_rna_seq",
+  "name": "sci-RNA-seq",
+  "family": "combinatorial_indexing",
+  "role": "regression"
+}

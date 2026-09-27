@@ -1,0 +1,6 @@
+{
+  "id": "plate_scatac_seq",
+  "name": "Plate scATAC-seq",
+  "family": "atac",
+  "role": "regression"
+}
