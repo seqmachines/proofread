@@ -210,6 +210,9 @@ export function HarnessPage({ initialSource }: { initialSource?: Source }) {
           <Link href="/queue" className="underline decoration-line hover:text-foreground">
             queue
           </Link>
+          <Link href="/memory" className="underline decoration-line hover:text-foreground">
+            memory
+          </Link>
           <Link href="/benchmark" className="underline decoration-line hover:text-foreground">
             benchmark
           </Link>

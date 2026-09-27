@@ -6,6 +6,7 @@ import type {
   AppConfig,
   BenchmarkRow,
   Chunk,
+  Entity,
   GtDiff,
   HarnessVersion,
   MoleculeState,
@@ -118,6 +119,14 @@ export const postReview = (id: string, review: ReviewInput) =>
   api<ReviewResponse>(`/runs/${encodeURIComponent(id)}/reviews`, json(review));
 export const getReviews = (id: string) => api<Review[]>(`/runs/${encodeURIComponent(id)}/reviews`);
 export const getQueue = () => api<QueueItem[]>("/queue");
+/** GET /memory?operation=&type= — verified entities only. */
+export function getMemory(filter: { operation?: string; type?: string } = {}): Promise<Entity[]> {
+  const q = new URLSearchParams();
+  if (filter.operation) q.set("operation", filter.operation);
+  if (filter.type) q.set("type", filter.type);
+  const qs = q.toString();
+  return api<Entity[]>(`/memory${qs ? `?${qs}` : ""}`);
+}
 export type BenchmarkGroupBy = "version" | "executor" | "protocol";
 /** GET /benchmark?group_by= → rows. The live shape is aggregated:
  *  {group, group_by, runs, gt_scored_runs, gt_score, benchmark_score}; it is mapped onto
@@ -145,6 +154,7 @@ export async function getBenchmark(groupBy: BenchmarkGroupBy): Promise<Benchmark
       executor: dim === "executor" ? x.group : undefined,
       harness_version: dim === "version" ? x.group : undefined,
       runs: typeof x.runs === "number" ? x.runs : undefined,
+      gt_scored_runs: typeof x.gt_scored_runs === "number" ? x.gt_scored_runs : undefined,
       structure_f1: gt?.structure_f1 ?? null,
       edge_f1: gt?.edge_f1 ?? null,
       benchmark: (x.benchmark_score ?? null) as BenchmarkRow["benchmark"],

@@ -281,9 +281,28 @@ export interface BenchmarkRow {
   harness_version?: string;
   source?: RunSource | "fixture" | string;
   runs?: number;
+  gt_scored_runs?: number; // how many of the runs have a proofread gt_score
   structure_f1?: number | null; // proofread's own score (gt_scored)
   edge_f1?: number | null;
   benchmark?: BenchmarkScore | null; // saved benchmark metrics, original names
+}
+
+/** cDNA memory entity (§3 `entities`), as GET /memory returns it (verified only). */
+export interface Entity {
+  _id?: string;
+  memory_key?: string;
+  name: string;
+  type: string; // usually a SegmentType
+  sequence?: string;
+  aliases?: string[];
+  operation?: string;
+  substrate?: string;
+  assay_family?: string;
+  verified: boolean;
+  provenance: { review_id?: string; run_id?: string; [k: string]: unknown };
+  protocol_id?: string; // set by reviews.py; the creating review lives on one of this protocol's runs
+  decision?: string;
+  created_at: string;
 }
 
 export interface QueueItem {

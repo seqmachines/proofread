@@ -76,6 +76,9 @@ export function StartPage() {
             <Link href="/queue" className="underline decoration-line hover:decoration-accent">
               queue
             </Link>
+            <Link href="/memory" className="underline decoration-line hover:decoration-accent">
+              memory
+            </Link>
             <Link href="/benchmark" className="underline decoration-line hover:decoration-accent">
               benchmark
             </Link>
