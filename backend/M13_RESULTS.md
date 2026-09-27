@@ -5,7 +5,8 @@ Done-when passed on 2026-09-27.
 ## Implementation
 
 - Source: `../cdna/cdna/`, committed as `3dcccfb` in the cDNA repository.
-- Distribution: `cdna-engine==0.2.0`; imports use `cdna.molecule`, `cdna.skills`,
+- Distribution: `cdna-engine @ git+https://github.com/seqmachines/cdna@v0.2.0`;
+  imports use `cdna.molecule`, `cdna.skills`,
   and `cdna.tools`. Existing cDNA oligo-extraction code and CLI are retained.
 - Proofread's former `molecules.py` and `skills.py` implementations are removed.
   Proofread-specific request/benchmark models remain in `tool_models.py`.
@@ -18,13 +19,14 @@ Done-when passed on 2026-09-27.
 - MoleculeState and Transition JSON schemas match the previous schemas exactly.
   No §2 changes were made.
 
-The wheel in `backend/vendor/` is built from the sibling source and is included
-in Docker and Cloud Build uploads. Its SHA256 is
-`1dc74133c7e06670b0a8fc1499eba36e68958e6244aefa9e2df06b71f0c57306`.
+The original M13 check used a wheel built from the sibling source. The dependency
+now installs directly from the Git tag, and the vendored wheel is removed.
+The tag resolves to `3dcccfb016e1d0d2caa70e3d6f3dff6807f9b4a8`, the same source
+commit used for the original check. Docker includes Git and CA certificates.
 
 ## Verification
 
-`python -m backend.check_m13` passed using the installed wheel in proofread's
+`python -m backend.check_m13` originally passed using the installed wheel in proofread's
 Python 3.11 environment and Claude Code **2.1.283**.
 
 1. The real proofread stdio MCP server exposed cDNA's schemas, constructed and
@@ -49,4 +51,22 @@ check requires Claude >=2.1.221 and a working login. The check rejects prose
 that merely claims a tool call succeeded.
 
 All synthetic runs/chunks and temporary containers were removed. Existing
-saved runs were preserved. M13 was not deployed to the live Cloud Run service.
+saved runs were preserved.
+
+## Git dependency and deployment follow-up
+
+`docker build --progress=plain -t proofread-backend:m13-git backend` passed with
+the Git requirement and no vendored wheel. The image's installed distribution
+metadata confirms version `0.2.0`, requested revision `v0.2.0`, and commit
+`3dcccfb016e1d0d2caa70e3d6f3dff6807f9b4a8` from the GitHub cDNA repository.
+
+`backend/deploy.sh` deployed to the acolite project (`gen-lang-client-0325887617`)
+in `us-east4`. Cloud Build `9d966181-eae2-421b-8682-bc3d95394ed1` succeeded;
+revision `proofread-api-00002-zdw` is ready and serves 100% of traffic. The
+existing service environment settings were preserved in the ignored private
+`backend/.env.cloudrun` file.
+
+Public checks passed at `https://proofread-api-7jj27cadja-uk.a.run.app`:
+
+- `/config`: `executor: none`, `live_runs: false`, `stream_mode: stream`.
+- `/protocols`: 20 protocols, each with its Codex benchmark source.
