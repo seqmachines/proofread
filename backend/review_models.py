@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import Field, model_validator
 
-from molecules import Contract, Text
+from cdna.molecule import Contract, Text
 
 ErrorType = Literal["missing_recoverable_information", "unsupported_completion",
                     "operation_error", "strand_or_orientation_error",

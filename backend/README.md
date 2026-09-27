@@ -621,3 +621,49 @@ with a 3600-second request timeout and one minimum instance.
   `executor: "none"`, `live_runs: false`, `stream_mode: "stream"`.
 - [Public protocols](https://proofread-api-7jj27cadja-uk.a.run.app/protocols):
   20 protocols with 20 Codex benchmark sources from Atlas.
+
+## M13 cDNA skills package
+
+Symbolic molecule models and skills live in `../cdna/cdna/`, distributed as
+`cdna-engine==0.2.0`. Proofread installs the wheel in `backend/vendor/` through
+`requirements.txt`. Both Docker and Cloud Build include this wheel, so the
+`backend/` build context is self-contained. Install from the repository root:
+
+```sh
+backend/.venv/bin/python -m pip install -r backend/requirements.txt
+```
+
+After changing the sibling package, bump its version, rebuild the wheel, and
+update the pinned requirement (commit the new wheel explicitly):
+
+```sh
+uv build --wheel --out-dir backend/vendor ../cdna
+backend/.venv/bin/python -m pip install -r backend/requirements.txt
+```
+
+`cdna.molecule` owns the unchanged MoleculeState/Transition schema;
+`cdna.skills` owns `reverse_transcribe` and `template_switch`. The standalone
+`cdna-mcp` command, or `python -m cdna.mcp_server`, exposes both named tools
+without proofread, MongoDB, ground truth, or model credentials.
+
+Proofread mounts cDNA's schemas through `harness.render()`. Its adapter in
+`AgentTools` requires the exact committed substrate, checks harness access,
+assigns `skill_call_id`, and emits `skill_called`. Products remain uncommitted
+until the agent calls `commit_state`. The existing `run_skill` entry point
+uses the same installed implementation. Review and benchmark request models
+remain in `tool_models.py`; no duplicate molecular implementation is retained.
+
+Run the M13 done-when check with Claude Code 2.1.221 or later and a working
+Claude login:
+
+```sh
+backend/.venv/bin/python -m backend.check_m13
+```
+
+It creates one synthetic run, exercises the real proofread MCP server, checks
+skill provenance and harness restrictions, then removes that run and its
+chunk. It also runs `claude -p` in an empty directory with only cDNA's MCP
+server, no built-in tools, and no database/run env variables. Success requires
+an actual `template_switch` tool call and its returned state. CLI versions
+before 2.1.221 can start the first turn before MCP tools are ready; prose that
+claims a call succeeded does not pass this check.

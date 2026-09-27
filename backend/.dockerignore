@@ -6,3 +6,5 @@
 !*.py
 !base_prompt.md
 check_*.py
+!vendor/
+!vendor/*.whl

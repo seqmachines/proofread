@@ -17,7 +17,7 @@ from db import get_db
 from engine import checkpoint, emit
 from executor import CliExecutor
 from harness_changes import SETTINGS, apply_patches
-from molecules import Contract
+from cdna.molecule import Contract
 from review_models import HarnessPatch
 from reviewer import output_schema, redact_sequences
 

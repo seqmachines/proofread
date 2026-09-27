@@ -1,3 +1,5 @@
+--find-links vendor
+cdna-engine==0.2.0
 pymongo>=4.10,<5
 python-dotenv>=1,<2
 PyMuPDF>=1.26,<2

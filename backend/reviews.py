@@ -9,7 +9,7 @@ from uuid import uuid4
 from agent import downstream
 from db import get_db
 from engine import emit
-from molecules import MoleculeState, Transition, symbolic
+from cdna.molecule import MoleculeState, Transition, symbolic
 from review_models import Signal
 from seed import structural, validate_structure
 from verifier import compare_ground_truth

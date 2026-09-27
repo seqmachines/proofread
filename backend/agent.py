@@ -8,9 +8,11 @@ from pydantic import ValidationError
 from db import get_db
 from engine import checkpoint, emit
 from evidence import list_sources, read_page, search_evidence
-from molecules import ARGUMENTS, MoleculeState
+from cdna.molecule import MoleculeState
+from cdna.skills import OPERATIONS
+from cdna.tools import INPUT_NAMES, call_skill
+from tool_models import ARGUMENTS
 from segments import bottom_is_5to3
-from skills import OPERATIONS, SKILLS
 
 MAX_STEPS = 200
 
@@ -68,7 +70,7 @@ class AgentTools:
         if state["origin"] == "skill":
             event = self.skill_event(state["skill_call_id"])
             if not event or event["result"] != state:
-                raise ValueError("A skill state must exactly match a successful run_skill result")
+                raise ValueError("A skill state must exactly match a successful skill call result")
         elif state["skill_call_id"] is not None:
             raise ValueError("Only skill-produced states may have skill_call_id")
         # Carried skill-origin segments are legitimate; newly invented ones are not.
@@ -135,6 +137,13 @@ class AgentTools:
                         results.append({"chunk_id": chunk["_id"], "page": chunk["page"], "snippet": chunk["text"]})
             emit(self.run_id, "evidence_searched", query=args["query"], results=results)
             return {"results": results}
+        if name in INPUT_NAMES:
+            substrate_key, oligo_key = INPUT_NAMES[name]
+            substrate = args[substrate_key]
+            if states.get(substrate["id"]) != substrate:
+                raise ValueError("The cDNA substrate must exactly match a committed state")
+            args = {"skill": name, "substrate_id": substrate["id"], "oligo_name": args[oligo_key]}
+            name = "run_skill"
         if name == "run_skill":
             skill = args["skill"]
             if self.harness["tool_access"].get(skill, "off") == "off":
@@ -143,7 +152,9 @@ class AgentTools:
             try:
                 if args["substrate_id"] not in states:
                     raise ValueError("Commit the substrate before calling a skill")
-                result = SKILLS[skill](states[args["substrate_id"]], args["oligo_name"])
+                substrate_key, oligo_key = INPUT_NAMES[skill]
+                result = call_skill(skill, {substrate_key: states[args["substrate_id"]],
+                                           oligo_key: args["oligo_name"]})
                 result["skill_call_id"] = call_id
                 result = MoleculeState.model_validate(result).model_dump()
             except ValueError as exc:

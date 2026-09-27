@@ -3,8 +3,9 @@
 from pathlib import Path
 
 from db import get_db
-from molecules import ARGUMENTS
-from skills import OPERATIONS
+from cdna.skills import OPERATIONS
+from cdna.tools import tool_definitions
+from tool_models import ARGUMENTS
 
 BASE_PROMPT = Path(__file__).with_name("base_prompt.md").read_text()
 DESCRIPTIONS = {
@@ -43,6 +44,8 @@ def render(version: str, workdir: Path | None = None, task: str = "") -> dict:
         (workdir / "AGENTS.md").write_text(prompt)
     tools = []
     for name, model in ARGUMENTS.items():
+        if name in OPERATIONS:
+            continue  # Mount cDNA's own definitions below, restricted by this harness.
         if name == "run_skill" and not enabled:
             continue
         schema = model.model_json_schema()
@@ -51,6 +54,13 @@ def render(version: str, workdir: Path | None = None, task: str = "") -> dict:
         tools.append({"type": "function", "function": {
             "name": name, "description": DESCRIPTIONS[name], "parameters": schema,
         }})
+    for tool in tool_definitions():
+        if tool["name"] in enabled:
+            tools.append({"type": "function", "function": {
+                "name": tool["name"], "description": tool["description"] +
+                " In proofread, supply the exact committed substrate; the result carries a skill_call_id for commits.",
+                "parameters": tool["inputSchema"],
+            }})
     return {"system_prompt": prompt, "tools": tools,
             "evidence_k": harness["context_policy"]["evidence_k"],
             "context_policy": harness["context_policy"],

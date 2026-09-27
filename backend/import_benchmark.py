@@ -23,7 +23,8 @@ if __package__:
 
 from db import get_db
 from engine import emit
-from molecules import BenchmarkScore, MoleculeState, Transition
+from cdna.molecule import MoleculeState, Transition
+from tool_models import BenchmarkScore
 from seed import BASES, BENCHMARK, convert_ground_truth
 
 RUNS_ROOT = Path(__file__).resolve().parents[2] / "libstruct-bench/runs"

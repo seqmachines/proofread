@@ -1,4 +1,9 @@
-"""Run-scoped stdio MCP server. All stdout is reserved for MCP JSON-RPC."""
+"""Run-scoped MCP server mounting cDNA tools through proofread's event adapter.
+
+harness.render supplies cDNA's schemas; AgentTools enforces substrate/permission
+checks and emits skill_called for both mounted tools and the run_skill adapter.
+All stdout is reserved for MCP JSON-RPC.
+"""
 
 import asyncio
 import json

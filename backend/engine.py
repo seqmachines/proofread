@@ -38,7 +38,7 @@ def emit(run_id: str, t: str, *, drained_inbox: list | None = None,
     if import_record is not None and (t != "run_started" or payload["source"] == "live"):
         raise ValueError("Import provenance belongs to an imported run_started")
     if t == "benchmark_scored":
-        from molecules import BenchmarkScore
+        from tool_models import BenchmarkScore
         BenchmarkScore.model_validate(payload)
     if t == "review_finding" or (t == "human_message" and signal_document is not None):
         from review_models import Signal
