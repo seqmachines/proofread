@@ -43,7 +43,7 @@ def rna(evidence):
 
 async def proofread_check():
     assert "site-packages" in Path(cdna.__file__).parts, cdna.__file__
-    assert version("cdna-engine") == "0.2.0"
+    assert version("cdna-engine") == "0.2.1"
     assert not (BACKEND / "skills.py").exists() and not (BACKEND / "molecules.py").exists()
     db = get_db()
     saved_ids = set(db.runs.distinct("_id"))

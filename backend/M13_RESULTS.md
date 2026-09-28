@@ -70,3 +70,34 @@ Public checks passed at `https://proofread-api-7jj27cadja-uk.a.run.app`:
 
 - `/config`: `executor: none`, `live_runs: false`, `stream_mode: stream`.
 - `/protocols`: 20 protocols, each with its Codex benchmark source.
+
+## v0.2.1 deployment and baseline scoring — 2026-09-28
+
+`backend/requirements.txt` now pins
+`cdna-engine @ git+https://github.com/seqmachines/cdna@v0.2.1`.
+Local and Docker distribution metadata both resolve that tag to
+`6c3af694c296952d517cef77c74199a05e2f323c` and report version `0.2.1`.
+There was no remaining wheel in `backend/vendor/` to delete.
+
+`docker build --progress=plain -t proofread-backend:cdna-v0.2.1 backend`
+passed. `backend/deploy.sh` completed with Cloud Build
+`e7487131-db8d-4f09-931f-380d7233cff9`. Cloud Run revision
+`proofread-api-00003-n66` is ready and serves 100% of traffic in the existing
+project and region. Public checks passed:
+
+- `/config`: `executor: none`, `live_runs: false`, `stream_mode: stream`.
+- `/protocols`: 20 protocols and 20 imported sources.
+- All 20 public run snapshots have both `gt_score` and `benchmark_score`.
+- `/benchmark?group_by=version`, `executor`, and `protocol` each account for
+  20 scored runs; the protocol grouping contains 20 rows.
+
+All 20 retained baselines were scored with `verifier.compare_ground_truth()`.
+Each score was persisted through `emit(gt_scored)` followed by
+`emit(run_finished)` in one transaction. Existing event prefixes, molecular
+graphs, saved benchmark metrics, workflow revisions, and the existing human
+review were verified unchanged. Imported runs were not marked as Gate baselines.
+
+Public `/benchmark?group_by=executor` reports mean `structure_f1 = 0.67816515`
+and `edge_f1 = 0.6956088`, with `gt_scored_runs = 20`. Its separate benchmark
+score remains version `4.6.0`, including mean `t3_state_f1 = 0.6713298263853551`
+and `t3_typed_edge_f1 = 0.7536018460517834` under their original names.

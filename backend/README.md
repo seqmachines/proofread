@@ -625,8 +625,8 @@ with a 3600-second request timeout and one minimum instance.
 ## M13 cDNA skills package
 
 Symbolic molecule models and skills live in `../cdna/cdna/`. Proofread installs
-`cdna-engine @ git+https://github.com/seqmachines/cdna@v0.2.0` through
-`requirements.txt`. The tag resolves to `3dcccfb016e1d0d2caa70e3d6f3dff6807f9b4a8`.
+`cdna-engine @ git+https://github.com/seqmachines/cdna@v0.2.1` through
+`requirements.txt`. The tag resolves to `6c3af694c296952d517cef77c74199a05e2f323c`.
 Docker includes Git and CA certificates to install directly from GitHub; no
 vendored wheel or sibling checkout is needed. Install from the repository root:
 
