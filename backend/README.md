@@ -472,7 +472,7 @@ verifier checks; the importer does not invent an agent trace or Evolver signals.
 `{run_id, source, executor, model, harness_version, benchmark_score?}`.
 `POST /import` requires a local caller and a configured `X-Review-Token`, and
 returns `{records, runs}` with counts of new or changed records/runs. The CLI
-remains available for local setup. Harbor trajectory mapping belongs to M14.
+remains available for local setup. Harbor trajectory mapping is described below.
 
 ## M11 authenticated reviews
 
@@ -662,3 +662,48 @@ server, no built-in tools, and no database/run env variables. Success requires
 an actual `template_switch` tool call and its returned state. CLI versions
 before 2.1.221 can start the first turn before MCP tools are ready; prose that
 claims a call succeeded does not pass this check.
+
+## M14 Harbor trajectories
+
+Attach the saved trajectories to the original 20 Codex baselines:
+
+```sh
+backend/.venv/bin/python -m backend.import_benchmark ../libstruct-bench/runs --source harbor
+backend/.venv/bin/python -m backend.import_benchmark --normalize-only
+```
+
+The first command reads only the selected `runs/` artifacts. Agent messages
+become `step_started`, recognized file reads with recorded text become
+`evidence_searched`, and explicitly stated assumptions become `assumption`.
+Recorded commands are never executed. Text excerpts omit nucleotide sequences
+and credentials; binary/image output is omitted. Excerpts are capped at 12,000
+characters per recorded read, with 400-character trace snippets. Page 0 means
+the output did not identify a page. Evidence chips resolve through `/chunks`.
+
+`benchmark_records.trajectory` stores the mapped events, chunks, source path,
+and source digest. This avoids storing large inline images and lets
+`--normalize-only` work without the checkout. A later record-only import
+preserves this trajectory.
+
+Per approved §2.2/§2.7, normalization rebuilds an imported run's entire stream
+and workflow in one transaction through `emit()`: start, trace, final graph,
+checks and benchmark scores, retained review/edit/scoring history, finish.
+The old stream is archived in `benchmark_records.normalization.original_events`.
+Run IDs, graph IDs, reviews, workflow revisions and both score sets are
+preserved; a rebuild that would change the current workflow is rejected.
+`runs.normalization_version` records `m14.1`. Identical normalization is a no-op.
+Both importer and event writer refuse re-normalization of live runs.
+
+Reload an already-open run after normalization to replay from `since=0`.
+The old sequence cursor refers to the earlier stream.
+
+The done-when check imports the real panel, verifies unchanged workflows and
+review records, checks idempotence and live-run exclusion, then replays the
+SMART-seq paper baseline through the public API, SSE and actual web reducer:
+
+```sh
+backend/.venv/bin/python -m backend.check_m14 \
+  --base https://proofread-api-7jj27cadja-uk.a.run.app
+```
+
+See `M14_RESULTS.md` for the recorded result.

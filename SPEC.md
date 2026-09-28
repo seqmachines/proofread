@@ -114,16 +114,38 @@ An imported `MoleculeState` may also carry `benchmark_structure`: the native Tas
 
 Append-only. `{ run_id, seq, ts, t, ...payload }`, `seq` per run from 1. Harness-level events carry the triggering `run_id`.
 
+**M14 imported-run re-normalization — approved 2026-09-28.**
+
+- The importer may map saved Harbor agent messages to `step_started`, recorded
+  file reads to `evidence_searched`, and explicitly stated assumptions to
+  `assumption`, using the existing payloads below. It reads only `runs/`, never
+  executes trajectory commands, and omits nucleotide sequences and credentials
+  from public excerpts. Store the mapped trace and source provenance in
+  `benchmark_records` so normalization requires no checkout.
+- Only runs with `source: benchmark | harbor` may be re-normalized. Rebuild
+  the whole event stream from `benchmark_records` and its archived trajectory
+  under the same `run_id`; never splice events into the existing stream.
+  Emit trace events after `run_started` and before graph commits. Archive the
+  original log and retain subsequent review/edit history when rebuilding.
+  Replace the stream and its projection atomically through `emit()`, number
+  `seq` contiguously from 1, and record `normalization_version` on the run.
+- Preserve run IDs, source identity, workflow revisions, graph content, reviews,
+  saved benchmark metrics, and verifier scores. State and transition IDs stay
+  stable so existing reviews still resolve. Repeating the same normalization
+  is a no-op. Live runs remain append-only without exception.
+- Existing clients must reload and replay from `since=0` after re-normalization,
+  because their previous sequence cursors refer to the original ordering.
+
 | `t` | payload | emitted by |
 |---|---|---|
 | `run_started` | `protocol_id, harness_version, executor, source: live \| harbor \| benchmark` | engine / importer |
-| `step_started` | `step, goal` | executor |
-| `evidence_searched` | `query, results:[{chunk_id, page, snippet}]` | executor |
+| `step_started` | `step, goal` | executor / importer |
+| `evidence_searched` | `query, results:[{chunk_id, page, snippet}]` | executor / importer |
 | `skill_called` | `skill_call_id, skill, inputs, result, error` | executor |
 | `state_committed` / `transition_committed` | `state \| transition, workflow_revision` | executor / editor / importer |
 | `state_revised` | `state_id, before, after \| null (removed), caused_by, workflow_revision, stale:[state_id]` | editor / reviews |
 | `transition_revised` | `transition_id, before \| null (added), after \| null (removed), caused_by, workflow_revision` | editor / reviews |
-| `assumption` | `text, state_id?` | executor |
+| `assumption` | `text, state_id?` | executor / importer |
 | `guardrail_blocked` | `tool, reason` | executor |
 | `checkpoint` | `completed_states: string[], pending: string[], tokens: {last_call, cumulative}` | executor |
 | `verifier_check` | `check, status, state_id?, message, evidence?` | verifier |
@@ -216,6 +238,7 @@ Write routes (`POST /runs/{id}/reviews`, `/messages`, `/patches/*/apply`, `/harn
 - Ground truth isolation: only `verifier.py` opens `ground_truth`, called from `gate.py`, `/gt-diff`, or post-run scoring. Setup code and the importer may write it.
 - Executor never writes `entities`. Only `reviews.py` (accepted items) and `gate.py` (promoted runs) do.
 - Benchmark import emits `benchmark_scored` before `run_finished`, never relabels benchmark metrics, and never uses them as Gate baselines. Import is keyed on `(executor, model, harness_version, protocol)`; re-import updates, never duplicates. Normalization must be re-runnable from `benchmark_records` alone.
+- **Imported-run re-normalization (M14, approved 2026-09-28):** only `source: benchmark | harbor` may have its entire event stream rebuilt from archived records and trajectory under the same `run_id`, per §2.2. Preserve state/transition IDs, reviews and applied edits, workflow revisions, and both score sets; record `runs.normalization_version` and make identical re-runs a no-op. Rebuild through `emit()` in one transaction, with trace events before commits. Never splice the existing stream or apply this exception to live runs; live event logs remain append-only.
 
 ## 3. Data (MongoDB Atlas)
 

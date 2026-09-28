@@ -1,5 +1,6 @@
-"""Run snapshots and their append-only event log. All run writes use emit()."""
+"""Transactional run snapshots and event logs. All run writes use emit()."""
 
+from copy import deepcopy
 from datetime import datetime, timezone
 import os
 from uuid import uuid4
@@ -245,37 +246,66 @@ def _emit_import(run_id, t, payload, provenance, batch, session):
         raise ValueError("Import batches require an enclosing transaction")
     events = batch.setdefault("events", [])
     if t == "run_started":
-        if events or payload["source"] != "benchmark" or provenance is None:
-            raise ValueError("Import batch must start once with benchmark provenance")
-        batch["run"] = {"_id": run_id, "run_id": run_id, **payload,
+        if events or payload["source"] not in {"benchmark", "harbor"} or provenance is None:
+            raise ValueError("Import batch must start once with imported provenance")
+        previous = batch.get("previous")
+        if previous:
+            current = get_db().runs.find_one({"_id": run_id}, session=session)
+            if (not current or current.get("source") not in {"benchmark", "harbor"}
+                    or current != previous):
+                raise ValueError("Re-normalization requires an unchanged imported run; never a live run")
+        batch["run"] = {**(previous or {}), "_id": run_id, "run_id": run_id, **payload,
                         "status": "running", "checkpoint": {}, "inbox": [],
                         "tokens": {"last_call": 0, "cumulative": 0},
                         "parent_run_id": None, "verified_through_revision": None,
                         "model": provenance["model"],
                         "benchmark_record_id": provenance["benchmark_record_id"],
                         "import_record": provenance}
+        if previous:
+            for key in ("verified_through_revision", "checkpoint", "tokens", "inbox", "parent_run_id"):
+                batch["run"][key] = previous.get(key, batch["run"][key])
+        if batch.get("normalization_version"):
+            batch["run"]["normalization_version"] = batch["normalization_version"]
         batch["workflow"] = {"run_id": run_id, "protocol_id": payload["protocol_id"],
             "harness_version": payload["harness_version"], "workflow_revision": 1,
             "states": [], "transitions": [], "checks": [], "gt_score": None}
     elif (not batch.get("run") or batch["run"]["run_id"] != run_id
           or (events and events[-1]["t"] == "run_finished")):
         raise ValueError("Import event must belong to its unfinished batch")
+    if batch["run"].get("source") not in {"benchmark", "harbor"}:
+        raise ValueError("Live runs cannot use the import batch writer")
     workflow = batch["workflow"]
     if t in {"state_committed", "transition_committed"}:
         key = "state" if t == "state_committed" else "transition"
         item = payload[key]
         if payload["workflow_revision"] != workflow["workflow_revision"] or any(x["id"] == item["id"] for x in workflow[key + "s"]):
             raise ValueError("Invalid imported revision or duplicate ID")
-        workflow[key + "s"].append(item)
+        workflow[key + "s"].append(deepcopy(item))
     elif t in {"state_revised", "transition_revised"}:
         key = "state" if t == "state_revised" else "transition"
         current = next((x for x in workflow[key + "s"] if x["id"] == payload[key + "_id"]), None)
-        if current != payload["before"] or payload["workflow_revision"] != workflow["workflow_revision"] + 1:
+        if current != payload["before"] or payload["workflow_revision"] not in {
+                workflow["workflow_revision"], workflow["workflow_revision"] + 1}:
             raise ValueError("Stale imported revision")
-        workflow[key + "s"] = [payload["after"] if x["id"] == payload[key + "_id"] else x
+        stale = payload.get("stale", [])
+        workflow[key + "s"] = [deepcopy(payload["after"]) if x["id"] == payload[key + "_id"] else
+                               {**x, "stale_since_revision": payload["workflow_revision"]}
+                               if x["id"] in stale else x
                                for x in workflow[key + "s"]
                                if x["id"] != payload[key + "_id"] or payload["after"] is not None]
+        if current is None and payload["after"] is not None:
+            workflow[key + "s"].append(deepcopy(payload["after"]))
         workflow["workflow_revision"] = payload["workflow_revision"]
+    elif t == "review_recorded":
+        status = {"accept": "accepted", "modify": "modified", "reject": "rejected", "unresolved": "unresolved"}[payload["decision"]]
+        for state in workflow["states"]:
+            if state["id"] == payload["target_id"]:
+                state["review_status"] = status
+    elif t == "gt_scored":
+        if set(payload) != {"structure_f1", "edge_f1"} or not all(
+                isinstance(v, (int, float)) and not isinstance(v, bool) and 0 <= v <= 1 for v in payload.values()):
+            raise ValueError("Invalid imported verifier score")
+        workflow["gt_score"] = payload
     elif t == "verifier_check":
         if payload["status"] not in {"pass", "fail"}:
             raise ValueError("Invalid imported check status")
@@ -288,24 +318,34 @@ def _emit_import(run_id, t, payload, provenance, batch, session):
         if "benchmark_score" not in workflow:
             raise ValueError("An imported record must have its saved scores")
         batch["run"]["status"] = payload["status"]
-    elif t != "run_started":
+    elif t not in {"run_started", "step_started", "evidence_searched", "assumption",
+                    "human_message", "patch_proposed", "patch_applied", "error"}:
         raise ValueError(f"Not a benchmark record event: {t}")
-    event = {"run_id": run_id, "seq": batch.get("offset", 0) + len(events) + 1,
+    event = {"run_id": run_id, "seq": len(events) + 1,
              "ts": datetime.now(timezone.utc).isoformat(), "t": t, **payload}
     events.append(event)
+    if batch.get("event_ts"):
+        event["ts"] = batch.pop("event_ts")
     if t == "run_finished":
         db = get_db()
         batch["run"]["step"] = event["seq"]
-        if batch.get("offset"):
-            provenance = batch["provenance"]
-            batch["run"].update(import_record=provenance, model=provenance["model"],
-                                benchmark_record_id=provenance["benchmark_record_id"])
-            result = db.runs.replace_one({"_id": run_id, "step": batch["offset"]}, dict(batch["run"]), session=session)
+        if batch.get("previous"):
+            previous = batch["previous"]
+            expected = {k: v for k, v in batch["expected_workflow"].items() if k != "_id"}
+            if workflow != expected:
+                raise ValueError("Re-normalization would change the reviewed workflow or scores")
+            batch["run"]["normalized_through_seq"] = event["seq"]
+            result = db.runs.replace_one({"_id": run_id, "step": previous["step"],
+                                         "source": {"$in": ["benchmark", "harbor"]}},
+                                        dict(batch["run"]), session=session)
             if result.matched_count != 1:
-                raise ValueError("Run changed during import")
+                raise ValueError("Imported run changed during re-normalization")
+            db.events.delete_many({"run_id": run_id}, session=session)
             db.workflows.replace_one({"run_id": run_id}, dict(workflow), session=session)
         else:
             batch["run"]["created_at"] = events[0]["ts"]
+            if batch.get("normalization_version"):
+                batch["run"]["normalized_through_seq"] = event["seq"]
             db.runs.insert_one(dict(batch["run"]), session=session)
             db.workflows.insert_one(dict(workflow), session=session)
         db.events.insert_many([dict(e) for e in events], session=session)

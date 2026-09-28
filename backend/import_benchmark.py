@@ -23,6 +23,7 @@ if __package__:
 
 from db import get_db
 from engine import emit
+from harbor import NORMALIZATION_VERSION, map_trajectory
 from cdna.molecule import MoleculeState, Transition
 from tool_models import BenchmarkScore
 from seed import BASES, BENCHMARK, convert_ground_truth
@@ -77,7 +78,7 @@ def job_label(config, fallback):
     return "benchmark:" + value
 
 
-def archive_files(path):
+def archive_files(path, *, source="benchmark"):
     """Prepare the user-selected 20 Codex results and their replay dependencies."""
     path = Path(path).expanduser().resolve(strict=True)
     if not path.is_relative_to(RUNS_ROOT.resolve()):
@@ -165,6 +166,10 @@ def archive_files(path):
                 if Path(a["path"]).name in {"result.json", "config.json", "t3_prediction.json", "groundtruth_library_generation_workflow.json"}
                 or str(Path(a["path"]).parent) == selected[1]]
         record["scorer_version"] = saved_score(record)["benchmark_version"]
+        if source == "harbor":
+            trajectory = read_file(p.parent / "agent/trajectory.json")
+            record["trajectory"] = map_trajectory(trajectory["raw"], trajectory["path"], protocol)
+            record["source"] = "harbor"
         record["sha256"] = digest({k: v for k, v in record.items() if k != "imported_at"})
         records.append(record)
     if any(r["executor"] != "codex" or r["harness_version"] != BASELINE_HARNESS for r in records):
@@ -257,9 +262,12 @@ def prepare_record(record):
                        "message": BASES.sub("[sequence omitted]", issue), "evidence": []})
     key = tuple(record[k] for k in KEY_FIELDS)
     failed = bool(result.get("exception_info")) or record["kind"] == "malformed" or bool(predictions and not graph["states"])
+    trajectory = record.get("trajectory", {})
     content = {"protocol": protocol, "truth": truth, "graph": graph, "checks": checks,
+               "trace": trajectory.get("events", []), "chunks": trajectory.get("chunks", []),
                "score": score, "status": "failed" if failed else "done"}
     return {**content, **{k: record[k] for k in KEY_FIELDS},
+            "source": record.get("source", "benchmark"),
             "run_id": identifier("system-protocol", json.dumps(key)),
             "provenance": {"benchmark_record_id": record["_id"], "sha256": digest(content),
                            "model": record["model"], "harbor_run_id": record["harbor_run_id"],
@@ -300,55 +308,65 @@ def seed_protocols(prepared):
 
 
 def import_record(record):
-    """Append a new run or changes to its existing event log after protocol setup."""
+    """Rebuild an imported stream from its archive, preserving human history."""
     db = get_db()
     run_id = record["run_id"]
 
     def write(session):
         previous = db.runs.find_one({"_id": run_id}, session=session)
         protocol = record["protocol"]
-        if previous and previous.get("source") != "benchmark":
-            raise ImportConflict("Import identity collides with a non-benchmark run")
+        if previous and previous.get("source") not in {"benchmark", "harbor"}:
+            raise ImportConflict("Cannot re-normalize a live run")
+        if previous and previous["status"] not in {"done", "failed"}:
+            raise ImportConflict("Finish the imported run before re-normalizing it")
         workflow = db.workflows.find_one({"run_id": run_id}, session=session) if previous else None
-        if previous and workflow and previous.get("import_record") == record["provenance"]:
+        if (previous and workflow and previous.get("import_record") == record["provenance"]
+                and previous.get("normalization_version") == NORMALIZATION_VERSION):
             return False
         if previous and not workflow:
             raise ImportConflict("Existing run has lost its projection; rebuild it from its event log first")
-        batch = {"run": previous, "workflow": workflow, "offset": previous["step"],
-                 "provenance": record["provenance"]} if previous else {}
-        def send(t, **payload):
+        archive_id = record["provenance"]["benchmark_record_id"]
+        archive = db.benchmark_records.find_one({"_id": archive_id}, session=session)
+        if archive is None:
+            raise ImportConflict("Archive the benchmark record before normalizing it")
+        history = archive.get("normalization", {})
+        continuation = list(history.get("continuation", []))
+        if previous:
+            original = list(db.events.find({"run_id": run_id}, {"_id": 0}, session=session).sort("seq", 1))
+            if not original or original[-1]["seq"] != previous["step"]:
+                raise ImportConflict("Run and event log disagree")
+            cutoff = previous.get("normalized_through_seq")
+            if cutoff is None:
+                cutoff = next(e["seq"] for e in original if e["t"] == "run_finished")
+            continuation.extend(e for e in original if e["seq"] > cutoff and e["t"] != "run_finished")
+            history = {**history, "original_events": history.get("original_events", original),
+                       "continuation": continuation}
+            db.benchmark_records.update_one({"_id": archive_id}, {"$set": {"normalization": history}}, session=session)
+        batch = {"previous": previous, "expected_workflow": workflow,
+                 "normalization_version": NORMALIZATION_VERSION}
+        def send(t, *, timestamp=None, **payload):
+            if timestamp:
+                batch["event_ts"] = timestamp
             return emit(run_id, t, _session=session, _import_batch=batch, **payload)
-        if not previous:
-            send("run_started", protocol_id=protocol["_id"], harness_version=record["harness_version"],
-                 executor=record["executor"], source="benchmark", import_record=record["provenance"])
-            for state in record["graph"]["states"]:
-                send("state_committed", state=state, workflow_revision=1)
-            for transition in record["graph"]["transitions"]:
-                send("transition_committed", transition=transition, workflow_revision=1)
-        else:
-            # Preserve all existing events. Revisions/removals use the same
-            # contract as human edits; graph changes remain replayable.
-            for key, singular in (("transitions", "transition"), ("states", "state")):
-                incoming = {x["id"]: x for x in record["graph"][key]}
-                for old in list(workflow[key]):
-                    new = incoming.get(old["id"])
-                    if old == new:
-                        continue
-                    payload = {f"{singular}_id": old["id"], "before": old, "after": new,
-                               "caused_by": "benchmark_import", "workflow_revision": workflow["workflow_revision"] + 1}
-                    if singular == "state":
-                        payload["stale"] = []
-                    send(f"{singular}_revised", **payload)
-            for key, singular in (("states", "state"), ("transitions", "transition")):
-                known = {x["id"] for x in workflow[key]}
-                for item in record["graph"][key]:
-                    if item["id"] not in known:
-                        send(f"{singular}_committed", **{singular: item}, workflow_revision=workflow["workflow_revision"])
+        send("run_started", protocol_id=protocol["_id"], harness_version=record["harness_version"],
+             executor=record["executor"], source=previous["source"] if previous else record["source"],
+             import_record=record["provenance"])
+        for event in record["trace"]:
+            send(event["t"], **{k: v for k, v in event.items() if k != "t"})
+        for state in record["graph"]["states"]:
+            send("state_committed", state=state, workflow_revision=1)
+        for transition in record["graph"]["transitions"]:
+            send("transition_committed", transition=transition, workflow_revision=1)
         for check in record["checks"]:
-            if check not in batch["workflow"]["checks"]:
-                send("verifier_check", **check)
+            send("verifier_check", **check)
         send("benchmark_scored", **record["score"])
-        send("run_finished", status=record["status"])
+        for event in continuation:
+            send(event["t"], timestamp=event["ts"],
+                 **{k: v for k, v in event.items() if k not in {"_id", "run_id", "seq", "ts", "t"}})
+        if record["chunks"]:
+            db.chunks.bulk_write([ReplaceOne({"_id": c["_id"]}, c, upsert=True)
+                                  for c in record["chunks"]], session=session)
+        send("run_finished", status=previous["status"] if previous else record["status"])
         return True
 
     with db.client.start_session() as session:
@@ -370,17 +388,25 @@ def normalize_records():
 def store_records(records):
     db = get_db()
     # Keep one archival document for each selected baseline result file.
-    existing = {r["_id"]: r["sha256"] for r in db.benchmark_records.find({}, {"sha256": 1})}
-    changed = [r for r in records if existing.get(r["_id"]) != r["sha256"]]
+    existing = {r["_id"]: r for r in db.benchmark_records.find({}, {"sha256": 1, "trajectory": 1, "source": 1})}
+    for record in records:
+        # A later record-only import must not discard an archived trajectory.
+        old = existing.get(record["_id"], {})
+        for key in ("trajectory", "source"):
+            if key not in record and key in old:
+                record[key] = old[key]
+        record["sha256"] = digest({k: v for k, v in record.items() if k not in {"sha256", "imported_at"}})
+    changed = [r for r in records if existing.get(r["_id"], {}).get("sha256") != r["sha256"]]
     if changed:
-        db.benchmark_records.bulk_write([ReplaceOne({"_id": r["_id"]}, r, upsert=True) for r in changed])
+        # Preserve the original event archive and subsequent human history.
+        db.benchmark_records.bulk_write([UpdateOne({"_id": r["_id"]}, {"$set": r}, upsert=True) for r in changed])
     return len(changed)
 
 
 def import_benchmark(path, *, source="benchmark"):
-    if source != "benchmark":
-        raise NotImplementedError("Harbor trajectory import is M14; use source=benchmark for saved records")
-    count = store_records(archive_files(path))
+    if source not in {"benchmark", "harbor"}:
+        raise ValueError("Import source must be benchmark or harbor")
+    count = store_records(archive_files(path, source=source))
     return {"records": count, "runs": normalize_records()}
 
 
