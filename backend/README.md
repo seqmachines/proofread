@@ -477,10 +477,10 @@ remains available for local setup. Harbor trajectory mapping is described below.
 ## M11 authenticated reviews
 
 Set `REVIEW_TOKENS` to comma-separated `token:name:role` entries. Roles are
-`curator` or `author`. Review identity comes from this configuration; requests
-cannot supply a reviewer. All specified write routes require `X-Review-Token`;
-imports and harness writes additionally require a curator. Protocol scoping for
-author invite links remains M15. Read routes are public. `CORS_ORIGINS` defaults
+`curator` or legacy `author`. Curators use this configuration; authors need a
+protocol-scoped M15 invite. Requests cannot supply a reviewer. All write routes
+require `X-Review-Token`; imports and harness writes require a curator.
+Read routes are public except `GET /invites`. `CORS_ORIGINS` defaults
 to `http://localhost:3000` and accepts a comma-separated list.
 
 `EXECUTOR=none` exposes saved runs and authenticated reviews with no model or
@@ -707,3 +707,59 @@ backend/.venv/bin/python -m backend.check_m14 \
 ```
 
 See `M14_RESULTS.md` for the recorded result.
+
+## M15 author invites and reviewer fixes
+
+A curator sends `POST /invites` with `{protocol_id, name}` and
+`X-Review-Token`. The response includes `invite_id`, `protocol_id`, `name`,
+`role: "author"`, `created_at`, and a one-time `token`. Give that token to the
+reviewer for the existing `X-Review-Token` flow. Only its SHA-256 digest is
+stored. Curators can `GET /invites` for metadata; tokens and digests are omitted.
+
+The author may review any run belonging to the invited protocol. Writes to
+another protocol return 403. Import, harness, and invite administration remain
+curator-only. `POST /runs` also authenticates and checks the requested protocol.
+Legacy env author tokens lack a protocol scope and cannot write.
+`POST /runs/{id}/messages` returns 501 with `EXECUTOR=none`, without model calls
+or event writes; typed reviews remain available.
+
+`GET /runs/{id}/gt-diff` now returns `matched_states` and
+`matched_transitions`: `{predicted, truth, similarity}` pairs aligned by segment
+structure, operations, and mapped endpoints. IDs serve as references, not
+matching criteria. `missing_states` / `extra_states` and
+`missing_transitions` / `extra_transitions` contain the unmatched objects.
+`missing_edges` / `extra_edges` retain typed-edge details. State objects use
+§2.1; GT transitions retain native symbolic fields and endpoint arrays, including
+multiple substrates/products. Similarity is in [0, 1]; no sequence term is used.
+
+Public workflow, event, and SSE responses format verifier names as words and
+remove audit coordinates, internal IDs, and paths from messages. Structured
+navigation fields remain. Stored events and machine check keys are preserved.
+
+Seed the selected panel's frozen source documents separately from import:
+
+```sh
+backend/.venv/bin/python -m backend.seed \
+  --benchmark-chunks ../libstruct-bench/benchmarks/libgen/tasks
+```
+
+This setup-only exception is recorded in SPEC §0. The seeder verifies canonical
+manifest hashes and each file's SHA-256 at the pinned Hugging Face revision.
+It reads task metadata without executing task code. Source files are cached
+under ignored `backend/seed/frozen-*/source/` directories. PDF pages, Word text
+blocks, and bounded spreadsheet sections receive stable chunk IDs; nucleotide
+sequences are omitted. Existing trajectory evidence is preserved. Seeding does
+not invent citations for imported graph items that have no evidence links.
+Legacy `.doc` extraction uses `antiword`, or `textutil` on macOS.
+
+Run the done-when check against the configured Atlas database:
+
+```sh
+backend/.venv/bin/python -m backend.check_m15
+```
+
+It creates two temporary runs and one invite, proves a scoped author review
+succeeds and a cross-protocol review returns 403, checks disabled chat and
+curator restrictions, canonical alignment, public messages, and chunk resolution.
+It removes only its temporary records and verifies all saved runs are unchanged.
+See `M15_RESULTS.md` for deployment and verification results.

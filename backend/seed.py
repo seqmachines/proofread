@@ -1,9 +1,15 @@
 """M1 setup writes: import local LibStructBench protocol folders into Atlas."""
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
+import hashlib
 import json
 import re
 import shutil
+import subprocess
+import tomllib
+from urllib.parse import quote
+from urllib.request import urlopen
 import xml.etree.ElementTree as ET
 from collections import Counter
 from pathlib import Path
@@ -46,24 +52,39 @@ def prepare(source_root):
 
 
 def extract(source):
-    """Yield (locator, page, kind, text), preserving each source page or sheet."""
+    """Yield source pages and bounded table sections with stable locators."""
     if source.suffix.lower() == ".pdf":
         with pymupdf.open(source) as document:
             for number, page in enumerate(document, 1):
                 yield f"p{number:03}", number, "page", page.get_text(sort=True)
     elif source.suffix.lower() == ".xlsx":
         book = load_workbook(source, read_only=True, data_only=True)
-        for number, sheet in enumerate(book, 1):
-            rows = [["" if v is None else str(v).replace("|", "\\|").replace("\n", "<br>") for v in row]
-                    for row in sheet.iter_rows(values_only=True) if any(v is not None for v in row)]
-            if not rows:
-                continue
-            columns = max(len(row) for row in rows)
-            table = ["| " + " | ".join(f"Column {n + 1}" for n in range(columns)) + " |",
-                     "| " + " | ".join("---" for _ in range(columns)) + " |"]
-            table += ["| " + " | ".join(row + [""] * (columns - len(row))) + " |" for row in rows]
-            yield f"sheet{number:02}", number, "table", f"# {sheet.title}\n\n" + "\n".join(table)
-        book.close()
+        try:
+            for number, sheet in enumerate(book, 1):
+                columns = sheet.max_column or 1
+                header = f"# {sheet.title}\n\n" + "\n".join([
+                    "| " + " | ".join(f"Column {n + 1}" for n in range(columns)) + " |",
+                    "| " + " | ".join("---" for _ in range(columns)) + " |"])
+                rows, size, first, start, end = [], 0, True, 1, 0
+                for row_number, row in enumerate(sheet.iter_rows(values_only=True), 1):
+                    if not any(v is not None for v in row):
+                        continue
+                    cells = ["" if v is None else str(v).replace("|", "\\|").replace("\n", "<br>") for v in row]
+                    line = "| " + " | ".join(cells) + " |"
+                    if rows and (size + len(line) > 250_000 or len(rows) >= 1000):
+                        locator = f"sheet{number:02}" if first else f"sheet{number:02}-rows{start:05}-{end:05}"
+                        yield locator, number, "table", header + "\n" + "\n".join(rows)
+                        rows, size, first = [], 0, False
+                    if not rows:
+                        start = row_number
+                    rows.append(line)
+                    size += len(line)
+                    end = row_number
+                if rows:
+                    locator = f"sheet{number:02}" if first else f"sheet{number:02}-rows{start:05}-{end:05}"
+                    yield locator, number, "table", header + "\n" + "\n".join(rows)
+        finally:
+            book.close()
     elif source.suffix.lower() == ".docx":
         w = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
         with ZipFile(source) as archive:
@@ -75,6 +96,16 @@ def extract(source):
             # DOCX pagination depends on Word. `page` is a logical block here.
             number = start // 10 + 1
             yield f"paragraphs{start + 1:03}-{min(start + 10, len(paragraphs)):03}", number, "page", "\n\n".join(paragraphs[start:start + 10])
+    elif source.suffix.lower() == ".doc":
+        if shutil.which("antiword"):
+            command = ["antiword", str(source)]
+        elif shutil.which("textutil"):
+            command = ["textutil", "-convert", "txt", "-stdout", str(source)]
+        else:
+            raise RuntimeError("Legacy Word sources require antiword or macOS textutil")
+        text = subprocess.run(command, check=True, capture_output=True, text=True).stdout
+        for number, block in enumerate(text.split("\f"), 1):
+            yield f"block{number:03}", number, "page", block
     else:
         raise ValueError(f"Unsupported source format: {source}")
 
@@ -303,11 +334,76 @@ def seed():
     print("Transfer protocol was seeded only; no reconstruction or retrieval was run on it.")
 
 
+def seed_benchmark_chunks(task_root):
+    """Seed pinned source pages for the saved 20-protocol panel, without task code."""
+    root = Path(task_root).expanduser().resolve(strict=True)
+    db = get_db()
+    protocols = sorted(db.benchmark_records.distinct("protocol_id"))
+    if len(protocols) != 20:
+        raise ValueError("Expected the selected 20 benchmark protocols")
+
+    def one(protocol_id):
+        task = (root / protocol_id).resolve(strict=True)
+        if not task.is_relative_to(root):
+            raise ValueError("Task path escaped the frozen bundle root")
+        metadata = tomllib.loads((task / "task.toml").read_text())["metadata"]
+        manifest = json.loads((task / "input_manifest.json").read_text())
+        canonical = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
+        if (manifest["protocol_id"] != protocol_id or
+                hashlib.sha256(canonical).hexdigest() != metadata["source_manifest_sha256"]):
+            raise ValueError(f"Frozen source manifest mismatch for {protocol_id}")
+        repo, revision = metadata["input_repo"], metadata["input_revision"]
+        if not re.fullmatch(r"[a-f0-9]{40}", revision):
+            raise ValueError("Frozen input revision must be a full commit hash")
+        folder = SEED_DIR / ("frozen-" + protocol_id)
+        sources = folder / "source"
+        sources.mkdir(parents=True, exist_ok=True)
+        source_meta = {}
+        for entry in manifest["sources"]:
+            source = (sources / entry["local_path"]).resolve()
+            if not source.is_relative_to(sources.resolve()) or source.parent != sources.resolve():
+                raise ValueError("Frozen source must be a file directly within its bundle")
+            if not source.exists() or hashlib.sha256(source.read_bytes()).hexdigest() != entry["sha256"]:
+                url = f"https://huggingface.co/datasets/{quote(repo, safe='/')}/resolve/{revision}/{quote(entry['path'], safe='/')}"
+                with urlopen(url, timeout=120) as response:
+                    data = response.read()
+                if hashlib.sha256(data).hexdigest() != entry["sha256"]:
+                    raise ValueError(f"Frozen source hash mismatch for {protocol_id}: {source.name}")
+                source.write_bytes(data)
+            source_meta[source.name] = {"repo": repo, "revision": revision,
+                "path": entry["path"], "sha256": entry["sha256"],
+                "manifest_sha256": metadata["source_manifest_sha256"]}
+        # Extract only the manifest's files, including when a prior cache has extras.
+        chunks = []
+        for filename, provenance in source_meta.items():
+            for locator, page, kind, raw in extract(sources / filename):
+                if not raw.strip():
+                    continue
+                text = BASES.sub("[nucleotide sequence omitted]", raw).strip()
+                text = re.sub(r"(?:r[ACGU]){2,}(?:\+[ACGU])?", "[modified nucleotide sequence omitted]", text)
+                chunks.append({"_id": f"{protocol_id}:{filename}:{locator}", "protocol_id": protocol_id,
+                    "page": page, "kind": kind, "source_file": filename,
+                    "text": f"Source: {filename}; {locator}\n\n{text}", "provenance": provenance})
+        if not chunks:
+            raise ValueError(f"No source text extracted for {protocol_id}")
+        db.chunks.bulk_write([ReplaceOne({"_id": c["_id"]}, c, upsert=True) for c in chunks])
+        print(json.dumps({"protocol_id": protocol_id, "sources": len(source_meta), "chunks": len(chunks)}), flush=True)
+        return len(source_meta), len(chunks)
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(pool.map(one, protocols))
+    return {"protocols": len(protocols), "sources": sum(r[0] for r in results), "chunks": sum(r[1] for r in results)}
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source-root", type=Path, help="Copy the approved six bundles from local protocols-test first")
     parser.add_argument("--ground-truth-only", action="store_true", help="Reconvert native Task 3 without re-extracting source text")
+    parser.add_argument("--benchmark-chunks", type=Path, help="Frozen task root for the selected 20 imported protocols")
     args = parser.parse_args()
+    if args.benchmark_chunks:
+        print(json.dumps(seed_benchmark_chunks(args.benchmark_chunks)))
+        raise SystemExit(0)
     if args.source_root:
         prepare(args.source_root)
     if args.ground_truth_only:

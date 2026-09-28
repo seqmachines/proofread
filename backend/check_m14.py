@@ -21,6 +21,7 @@ import import_benchmark as importer
 from db import get_db
 from engine import emit
 from harbor import NORMALIZATION_VERSION, map_trajectory
+from verifier_text import public_event
 
 
 def get(base, path):
@@ -120,7 +121,7 @@ def check(base):
     paper = next(p for p in prepared if p["protocol_id"] == "smart_seq")
     run_id = paper["run_id"]
     events = get(base, f"/runs/{run_id}/events")
-    assert events == list(db.events.find({"run_id": run_id}, {"_id": 0}).sort("seq", 1))
+    assert events == [public_event(e) for e in db.events.find({"run_id": run_id}, {"_id": 0}).sort("seq", 1)]
     streamed = []
     with urlopen(base + f"/runs/{run_id}/stream?since=0", timeout=60) as response:
         for line in response:

@@ -15,7 +15,7 @@ def initialize():
     for name in (
         "protocols", "chunks", "ground_truth", "harness_versions",
         "runs", "events", "workflows", "signals",
-        "benchmark_records", "reviews", "entities",
+        "benchmark_records", "reviews", "entities", "invites",
     ):
         if name not in existing:
             db.create_collection(name)

@@ -33,6 +33,11 @@ A UI action that cannot reach all four is under-typed. Benchmark visualization i
 - Molecules are symbolic (segments), never nucleotide strings.
 - The executor never reads `ground_truth` and never writes `entities`.
 - libstruct-bench is read-only. The importer reads `runs/` and nothing else.
+- Walkthrough update (approved 2026-09-28): `seed.py` may also read the selected
+  20 protocols' frozen task bundles, including source manifests and pinned
+  source documents, to seed evidence chunks. Verify source hashes; never
+  execute task code or change the benchmark checkout. The importer retains
+  its `runs/`-only boundary.
 
 ## 1. Repo layout
 
@@ -209,7 +214,37 @@ Reviews are never overwritten; a later review of the same target is a new docume
 
 ### 2.6 API
 
-Write routes (`POST /runs/{id}/reviews`, `/messages`, `/patches/*/apply`, `/harness/*`, `/import`) require header `X-Review-Token`; the token resolves to a reviewer via `REVIEW_TOKENS`. Read routes are public.
+Write routes require `X-Review-Token`, resolved through `REVIEW_TOKENS` or a
+stored author invite. Reads are public except curator-only `GET /invites`.
+
+**Reviewer walkthrough and M15 — approved 2026-09-28:**
+
+- `/runs/{id}/gt-diff` aligns by symbolic segment structure and operations/endpoints,
+  never by matching IDs. Add `matched_states` and `matched_transitions`, each
+  containing `{predicted, truth, similarity}` (full objects and a similarity
+  from 0 to 1). `missing_states` / `extra_states` are unmatched GT / predicted
+  states; add `missing_transitions` / `extra_transitions` for unmatched
+  transitions. Retain `missing_edges` / `extra_edges` for typed-edge differences.
+  Predicted objects use §2.1. GT states use `MoleculeState`; GT transitions use
+  their native symbolic fields (`transition_id`, `operation`,
+  `substrate_state_ids`, `product_state_ids`, `carried_forward_product_ids`,
+  `discarded_product_ids`, `oligo_ids`) to preserve multiple endpoints.
+- Public verifier checks display the check name as words and a plain message,
+  without internal IDs or paths in those strings. Structured `state_id` and
+  `evidence` fields remain available for navigation; saved event history stays intact.
+- `/runs/{id}/messages` returns 501 when `EXECUTOR=none`, without invoking a
+  model or writing run events. Typed reviews remain available.
+- `POST /invites` accepts `{protocol_id, name}` and returns
+  `{invite_id, protocol_id, name, role: author, token, created_at}`. Only a
+  curator can create or list invites. Store a token digest; return the token
+  only when it is created. `GET /invites` returns the same metadata without
+  tokens or digests, newest first.
+- Invite tokens resolve through `X-Review-Token` to an author with one
+  `protocol_id`. All run write routes enforce that scope, returning 403 for
+  another protocol. Creating runs also requires a review token and enforces
+  the requested protocol's scope. Authors cannot import, change harnesses,
+  or administer invites. Unscoped legacy author tokens have no write access.
+  Other read routes remain public.
 
 | Method | Path | Body → Response |
 |---|---|---|
@@ -225,6 +260,8 @@ Write routes (`POST /runs/{id}/reviews`, `/messages`, `/patches/*/apply`, `/harn
 | GET | `/memory?operation=&type=` | `[Entity]` verified only |
 | GET | `/benchmark?group_by=version\|executor\|protocol` | aggregated scores, `benchmark_score` and `gt_score` side by side |
 | POST | `/import` | `{source: benchmark \| harbor, path}` → `{records: n, runs: n}` (local only) |
+| POST | `/invites` | `{protocol_id, name}` → invite metadata plus one-time `token` (curator only) |
+| GET | `/invites` | → invite metadata without tokens/digests (curator only) |
 
 ### 2.7 Semantics
 
@@ -254,6 +291,7 @@ Write routes (`POST /runs/{id}/reviews`, `/messages`, `/patches/*/apply`, `/harn
 | `workflows` | §2.1 |
 | `signals` | §2.4 |
 | `reviews` | §2.5; append-only |
+| `invites` | SHA-256 token digest as `_id`; invite_id, protocol_id, name, role author, created_at. No plaintext token. |
 | `entities` | cDNA memory: name, type, aliases, operation, substrate, assay_family, verified, provenance {review_id \| run_id}, created_at |
 
 Baselines: every protocol scored once per active version (`runs.baseline: true`); the gate compares against these.
@@ -321,7 +359,10 @@ Backend (Codex) and web (Claude Code) in parallel; web builds against fixtures f
 
 **M14 — Harbor trajectory import.** Tool calls → trace events. *Done when:* a paper baseline run shows a trace, not just commits.
 
-**M15 — Author review mode.** Scoped invite link, role `author`, one protocol.
+**M15 — Author review mode.** Curator creates/lists invites through `/invites`;
+the token grants role `author` for one protocol. Every run write enforces the
+scope. *Backend done when:* an author token can review its protocol and gets
+403 on another.
 
 Order: M12 → M10 → F11 → M11 → F12 → D1 → F9/F10 → M13 → M14 → M15.
 

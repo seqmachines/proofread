@@ -4,8 +4,8 @@ import argparse
 import json
 import urllib.request
 
-CHECKS = {"graph_connected", "substrate_exists", "oligos_represented",
-          "strand_consistency", "provenance_present"}
+CHECKS = {"Connected workflow", "Molecule references", "Oligo coverage",
+          "Strand consistency", "Evidence and provenance"}
 
 
 def get(url):
@@ -32,7 +32,8 @@ def check(base, run_id):
     assert [e["seq"] for e in events] == list(range(1, len(events) + 1))
     assert events[-1]["t"] == "run_finished" and events[-1]["status"] == "done"
     assert scored[-1]["seq"] > max(e["seq"] for e in events if e["t"] == "verifier_check")
-    assert set(diff) == {"missing_states", "extra_states", "missing_edges", "extra_edges"}
+    assert set(diff) == {"missing_states", "extra_states", "missing_edges", "extra_edges",
+                         "matched_states", "matched_transitions", "missing_transitions", "extra_transitions"}
     print(json.dumps({"run_id": run_id, "scores": workflow["gt_score"],
                       "failed_checks": [c["check"] for c in checks if c["status"] == "fail"],
                       "events": len(events), "missing_states": [s["id"] for s in diff["missing_states"]]}, indent=2))

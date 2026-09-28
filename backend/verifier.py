@@ -4,7 +4,7 @@ import re
 
 from db import get_db
 from engine import emit
-from structure import project_workflow, score
+from structure import project_workflow, score, state_similarity
 from segments import role, words
 
 CHECKS = ("graph_connected", "substrate_exists", "oligos_represented",
@@ -37,7 +37,7 @@ def check_workflow(workflow, chunks, events):
         endpoints = [t["from"], t["to"], *t.get("discarded", [])]
         absent = [sid for sid in endpoints if sid not in states]
         if absent:
-            fail("substrate_exists", f"{t['id']} references missing state(s): {', '.join(absent)}.", chunks=t["evidence"])
+            fail("substrate_exists", "An operation refers to a molecule that is missing from the workflow.", chunks=t["evidence"])
         for target in endpoints[1:]:
             if t["from"] in states and target in states:
                 neighbors[t["from"]].add(target)
@@ -54,7 +54,7 @@ def check_workflow(workflow, chunks, events):
         components.append(sorted(seen))
         remaining -= seen
     if len(components) != 1:
-        fail("graph_connected", f"Expected one connected workflow; found {len(components)} components: {components}.",
+        fail("graph_connected", f"The workflow has {len(components)} disconnected groups of molecules; expected one connected workflow.",
              min(components, key=len)[0] if components else None)
 
     segments = [s for state in states.values() for strand in state["strands"].values() for s in strand]
@@ -95,11 +95,11 @@ def check_workflow(workflow, chunks, events):
                 # which copy of a repeated adapter survived an operation.
                 common = {s for s in a if a.count(s) == b.count(s) == 1}
                 if [s for s in a if s in common] != [s for s in b if s in common]:
-                    fail("strand_consistency", f"{t['id']} ({t['op']}) reverses retained {side}-strand segment order.", after["id"], t["evidence"])
+                    fail("strand_consistency", f"The {t['op'].replace('_', ' ')} operation reverses the order of retained segments on the {side} strand.", after["id"], t["evidence"])
         a = {x for side in ("top", "bottom") for x in ordered(before, side)}
         b = {x for side in ("top", "bottom") for x in ordered(after, side)}
         if t["op"] == "pcr" and "tso" in b - a and "TSO" in named:
-            fail("strand_consistency", f"{t['id']}: PCR product introduces a TSO-derived handle absent from substrate {before['id']}; the template-switching intermediate/transition is missing before PCR.",
+            fail("strand_consistency", "The PCR product has a template-switching handle that is missing from its input. Add the template-switching intermediate before PCR.",
                  after["id"], sorted(named["TSO"]))
     for state in states.values():
         top, bottom = ordered(state, "top"), ordered(state, "bottom")
@@ -107,7 +107,7 @@ def check_workflow(workflow, chunks, events):
         # the same left-to-right order, even when their chemistry differs.
         common = {s for s in top if top.count(s) == bottom.count(s) == 1}
         if [s for s in top if s in common] != [s for s in bottom if s in common]:
-            fail("strand_consistency", f"{state['id']}: bottom strand is not aligned 3′→5′ under top; shared segment order differs.", state["id"], state["evidence"])
+            fail("strand_consistency", "The bottom strand is not aligned 3′→5′ under the top strand; shared segments appear in a different order.", state["id"], state["evidence"])
 
     skills = {e["skill_call_id"]: e for e in events if e["t"] == "skill_called" and e.get("result") and not e.get("error")}
     for state in states.values():
@@ -115,7 +115,7 @@ def check_workflow(workflow, chunks, events):
         skill_provenance = call is not None and call["result"]["strands"] == state["strands"]
         source_provenance = bool(state["evidence"]) and all(c in evidence for c in state["evidence"])
         if not (source_provenance or skill_provenance):
-            fail("provenance_present", f"{state['id']} has neither valid protocol evidence nor a matching successful skill result.", state["id"], state["evidence"])
+            fail("provenance_present", "A molecule has no linked source evidence or matching successful skill result.", state["id"], state["evidence"])
 
     passed = {
         "graph_connected": "All states belong to one connected workflow (including discarded products).",
@@ -179,6 +179,21 @@ def compare_ground_truth(run_id, *, workflow=None, session=None, review_target_i
     metrics, diff, matches = score(projected, merged)
     diff["missing_states"] = [s for s in truth["states"] if s["id"] in diff["missing_states"]]
     diff["extra_states"] = [s for s in workflow["states"] if s["id"] in diff["extra_states"]]
+    predicted_states = {s["id"]: s for s in workflow["states"]}
+    truth_states = {s["id"]: s for s in truth["states"]}
+    projected_states = {s["state_id"]: s for s in projected["states"]}
+    native_states = {s["state_id"]: s for s in merged["states"]}
+    diff["matched_states"] = [
+        {"predicted": predicted_states[m["state_id"]], "truth": truth_states[m["truth_id"]],
+         "similarity": round(state_similarity(projected_states[m["state_id"]], native_states[m["truth_id"]], False), 6)}
+        for m in matches]
+    predicted_transitions = {t["id"]: t for t in workflow["transitions"]}
+    truth_transitions = {t["transition_id"]: t for t in merged["transitions"]}
+    diff["matched_transitions"] = [
+        {"predicted": predicted_transitions[m["transition_id"]], "truth": truth_transitions[m["truth_id"]],
+         "similarity": m["similarity"]} for m in diff["matched_transitions"]]
+    diff["missing_transitions"] = [truth_transitions[tid] for tid in diff["missing_transitions"]]
+    diff["extra_transitions"] = [predicted_transitions[tid] for tid in diff["extra_transitions"]]
     result = {"run_id": run_id, "scores": metrics, "diff": diff, "matches": matches}
     if review_target_id is not None:
         state = next((s for s in projected["states"] if s["state_id"] == review_target_id), None)

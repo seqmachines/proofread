@@ -278,11 +278,16 @@ def score(prediction, truth):
     hits = set(mapped.values()) & truth_edges
     ignored = set(mapped.values()) & neutral_edges
     edge_f1 = f1(len(hits), len(predicted_edges) - len(ignored), len(truth_edges))
-    missing = [s["state_id"] for s in ts if scorable(s) and s["state_id"] not in state_map.values()]
+    missing = [s["state_id"] for s in ts if s["state_id"] not in state_map.values()]
     extra = [s["state_id"] for s in ps if s["state_id"] not in state_map]
     edge_doc = lambda e: {"type": e[0], "from": e[1], "to": e[2]}
     return {"structure_f1": round(structure_f1, 6), "edge_f1": round(edge_f1, 6)}, {
         "missing_states": missing, "extra_states": extra,
+        "matched_transitions": [
+            {"transition_id": pt[i]["transition_id"], "truth_id": tt[j]["transition_id"],
+             "similarity": round(value, 6)} for i, j, value in transition_pairs],
+        "missing_transitions": [t["transition_id"] for t in tt if t["transition_id"] not in transition_map.values()],
+        "extra_transitions": [t["transition_id"] for t in pt if t["transition_id"] not in transition_map],
         "missing_edges": [edge_doc(e) for e in sorted(truth_edges - hits)],
         "extra_edges": [edge_doc(e) for e in sorted(predicted_edges) if mapped[e] not in truth_edges | neutral_edges]}, [
         {"state_id": ps[i]["state_id"], "truth_id": ts[j]["state_id"],

@@ -15,11 +15,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo.errors import PyMongoError
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
 
 from db import get_db
-from auth import requires_review_token, reviewer_for_token
+from auth import authorize, create_invite, require_protocol, requires_review_token, reviewer_for_token
+from verifier_text import public_event, public_workflow
 from engine import create_run
 from evolver import evolve_run
 from gate import gate_and_finish
@@ -49,9 +50,8 @@ app = FastAPI(title="proofread", lifespan=lifespan)
 async def authenticate_writes(request, call_next):
     if requires_review_token(request.method, request.url.path.rstrip("/")):
         try:
-            request.state.reviewer = reviewer_for_token(request.headers.get("x-review-token", ""))
-            if (request.url.path.rstrip("/") == "/import" or request.url.path.startswith("/harness/")) and request.state.reviewer["role"] != "curator":
-                raise HTTPException(status_code=403, detail="This action requires a curator")
+            request.state.reviewer = await run_in_threadpool(reviewer_for_token, request.headers.get("x-review-token", ""))
+            await run_in_threadpool(authorize, request.state.reviewer, request.url.path.rstrip("/"))
         except HTTPException as exc:
             return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
     return await call_next(request)
@@ -69,7 +69,24 @@ def require_run(run_id):
 
 
 def stored_events(run_id, since):
-    return list(get_db().events.find({"run_id": run_id, "seq": {"$gt": since}}, {"_id": 0}).sort("seq", 1))
+    return [public_event(e) for e in get_db().events.find(
+        {"run_id": run_id, "seq": {"$gt": since}}, {"_id": 0}).sort("seq", 1)]
+
+
+class InviteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    protocol_id: str = Field(min_length=1, max_length=240)
+    name: str = Field(min_length=1, max_length=200)
+
+
+@app.post("/invites")
+def post_invite(body: InviteRequest):
+    return create_invite(body.protocol_id, body.name)
+
+
+@app.get("/invites")
+def get_invites():
+    return list(get_db().invites.find({}, {"_id": 0}).sort([("created_at", -1), ("invite_id", 1)]))
 
 
 @app.get("/config")
@@ -152,7 +169,8 @@ def get_queue():
 @app.post("/runs/{run_id}/reviews")
 def post_review(run_id: str, body: ReviewRequest, request: Request):
     try:
-        return record_review(run_id, body, request.state.reviewer)
+        reviewer = {k: request.state.reviewer[k] for k in ("id", "name", "role")}
+        return record_review(run_id, body, reviewer)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ReviewConflict as exc:
@@ -209,7 +227,8 @@ class StartRun(BaseModel):
 
 
 @app.post("/runs")
-def start_run(body: StartRun, tasks: BackgroundTasks):
+def start_run(body: StartRun, tasks: BackgroundTasks, request: Request):
+    require_protocol(request.state.reviewer, body.protocol_id)
     configured = os.getenv("EXECUTOR", "codex")
     executor = body.executor or configured
     if configured == "none" or executor == "none":
@@ -291,7 +310,15 @@ def post_gate(version: str):
 @app.get("/runs/{run_id}")
 def get_run(run_id: str):
     return {"run": require_run(run_id),
-            "workflow": get_db().workflows.find_one({"run_id": run_id}, {"_id": 0})}
+            "workflow": public_workflow(get_db().workflows.find_one({"run_id": run_id}, {"_id": 0}))}
+
+
+@app.post("/runs/{run_id}/messages")
+def post_message(run_id: str):
+    require_run(run_id)
+    if os.getenv("EXECUTOR", "codex") == "none":
+        raise HTTPException(status_code=501, detail="Chat editing is disabled; use a typed review")
+    raise HTTPException(status_code=501, detail="Chat editing is not implemented")
 
 
 @app.get("/runs/{run_id}/events")
@@ -318,7 +345,7 @@ def stream(run_id: str, request: Request, since: int = Query(0, ge=0),
         last_seq = since
 
         def frame(event):
-            return f"data: {json.dumps(event)}\n\n"
+            return f"data: {json.dumps(public_event(event))}\n\n"
 
         async def replay():
             nonlocal last_seq
