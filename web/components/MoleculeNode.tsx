@@ -75,7 +75,7 @@ function Bar({ segs, cols, ends, dim }: { segs: Segment[]; cols: number; ends: [
 }
 
 function MoleculeNodeImpl({ data, selected }: NodeProps<MoleculeNodeType>) {
-  const { state, ghost, stale, discarded, failed, gtMismatch } = data;
+  const { state, ghost, stale, discarded, failed, gtMismatch, gtSimilarity } = data;
   const { top, bottom } = state.strands;
   const cols = Math.max(top.length, bottom.length, 1);
   const single = bottom.length === 0 || top.length === 0;
@@ -143,6 +143,15 @@ function MoleculeNodeImpl({ data, selected }: NodeProps<MoleculeNodeType>) {
             {data.findings > 0 && (
               <span className="rounded-sm border border-rose-500/60 px-1 text-rose-600 dark:text-rose-400" title={`${data.findings} model finding${data.findings > 1 ? "s" : ""} (proposal)`}>
                 {data.findings} finding{data.findings > 1 ? "s" : ""}
+              </span>
+            )}
+            {typeof gtSimilarity === "number" && (
+              <span
+                className={cx("rounded-sm border px-1 tabular-nums", gtSimilarity >= 0.8 ? "border-emerald-500/60 text-emerald-600 dark:text-emerald-400" : "border-amber-500/60 text-amber-600 dark:text-amber-400")}
+                title={`matched a ground-truth state with similarity ${gtSimilarity.toFixed(2)}`}
+                data-gt-similarity={gtSimilarity.toFixed(2)}
+              >
+                GT {gtSimilarity.toFixed(2)}
               </span>
             )}
             {failed > 0 && (

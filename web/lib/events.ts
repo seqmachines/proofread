@@ -334,12 +334,43 @@ export interface Chunk {
   text: string;
 }
 
-// Element shape is not pinned by §2.5; the web renders entries with fmtVal and matches ids loosely.
+/** A ground-truth transition in its native symbolic form (§2.6): several endpoints possible. */
+export interface GtTransition {
+  transition_id: string;
+  operation: string;
+  substrate_state_ids: string[];
+  product_state_ids: string[];
+  carried_forward_product_ids?: string[];
+  discarded_product_ids?: string[];
+  oligo_ids?: string[];
+}
+
+export interface GtMatch<P, T> {
+  predicted: P;
+  truth: T;
+  similarity: number; // 0..1
+}
+
+/** GET /runs/{id}/gt-diff — aligned by symbolic structure, never by id (§2.6). */
 export interface GtDiff {
-  missing_states: unknown[];
-  extra_states: unknown[];
-  missing_edges: unknown[];
+  matched_states?: GtMatch<MoleculeState, MoleculeState>[];
+  matched_transitions?: GtMatch<Transition, GtTransition>[];
+  missing_states: unknown[]; // unmatched GT states (MoleculeState)
+  extra_states: unknown[]; // unmatched predicted states (MoleculeState)
+  missing_transitions?: unknown[]; // unmatched GT transitions (GtTransition)
+  extra_transitions?: unknown[]; // unmatched predicted transitions (Transition)
+  missing_edges: unknown[]; // typed-edge differences
   extra_edges: unknown[];
+}
+
+/** §2.6 invites: an author token scoped to one protocol. The token is returned once, on creation. */
+export interface Invite {
+  invite_id: string;
+  protocol_id: string;
+  name: string;
+  role: "author";
+  created_at: string;
+  token?: string;
 }
 
 // ---------------------------------------------------------------- §2.2 Events

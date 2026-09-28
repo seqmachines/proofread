@@ -7,6 +7,8 @@ import { useSyncExternalStore } from "react";
 export interface ReviewerIdentity {
   name: string;
   token: string;
+  role?: "curator" | "author"; // learned from an invite link or the first review_recorded
+  protocol_id?: string; // authors: the one protocol the token can write to
 }
 
 const KEY = "proofread.reviewer";
@@ -19,7 +21,13 @@ function read(): ReviewerIdentity | null {
     const raw = window.localStorage.getItem(KEY);
     if (!raw) return null;
     const v = JSON.parse(raw) as Partial<ReviewerIdentity>;
-    return typeof v.token === "string" && v.token ? { name: typeof v.name === "string" ? v.name : "", token: v.token } : null;
+    if (typeof v.token !== "string" || !v.token) return null;
+    return {
+      name: typeof v.name === "string" ? v.name : "",
+      token: v.token,
+      role: v.role === "author" || v.role === "curator" ? v.role : undefined,
+      protocol_id: typeof v.protocol_id === "string" ? v.protocol_id : undefined,
+    };
   } catch {
     return null;
   }
@@ -51,3 +59,6 @@ export function useReviewer(): ReviewerIdentity | null {
     () => null,
   );
 }
+
+/** Curator-only UI (harness changes, invites, verify / adjudicate) hides for authors. */
+export const isAuthor = (r: ReviewerIdentity | null) => r?.role === "author";

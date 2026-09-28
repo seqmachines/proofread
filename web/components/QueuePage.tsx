@@ -9,6 +9,7 @@ import type { QueueItem } from "@/lib/events";
 import { API_URL, getQueue } from "@/lib/api";
 import { need, sortByNeed } from "@/lib/queue";
 import { cx } from "@/lib/cx";
+import { isAuthor, useReviewer } from "@/lib/reviewer";
 
 const btn =
   "h-6 rounded border border-line bg-panel px-2 font-mono text-[11px] leading-5 text-foreground hover:border-accent disabled:opacity-40";
@@ -32,6 +33,7 @@ function NeedBar({ q, max }: { q: QueueItem; max: number }) {
 }
 
 export function QueuePage() {
+  const reviewer = useReviewer();
   const router = useRouter();
   const [state, setState] = useState<{ items: QueueItem[] | null; error: string | null; at: string | null }>({ items: null, error: null, at: null });
   const [filter, setFilter] = useState("");
@@ -83,9 +85,11 @@ export function QueuePage() {
           <Link href="/benchmark" className="underline decoration-line hover:text-foreground">
             benchmark
           </Link>
-          <Link href="/harness" className="underline decoration-line hover:text-foreground">
-            harness
-          </Link>
+          {!isAuthor(reviewer) && (
+            <Link href="/harness" className="underline decoration-line hover:text-foreground">
+              harness
+            </Link>
+          )}
         </span>
       </header>
       <main className="min-h-0 flex-1 overflow-y-auto px-6 py-6">

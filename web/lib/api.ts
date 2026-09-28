@@ -7,6 +7,7 @@ import type {
   BenchmarkRow,
   Chunk,
   Entity,
+  Invite,
   GtDiff,
   HarnessVersion,
   MoleculeState,
@@ -162,6 +163,13 @@ export async function getBenchmark(groupBy: BenchmarkGroupBy): Promise<Benchmark
     } satisfies BenchmarkRow;
   });
 }
+/** Curator only. GET needs the token too (sent when stored). */
+export const listInvites = () => {
+  const t = getReviewer()?.token;
+  const headers: Record<string, string> = t ? { "X-Review-Token": t } : {};
+  return api<Invite[]>("/invites", { headers });
+};
+export const createInvite = (protocol_id: string, name: string) => api<Invite>("/invites", json({ protocol_id, name }));
 export const getHarness = () => api<HarnessVersion>("/harness");
 export const getHarnessVersions = () => api<HarnessVersion[]>("/harness/versions");
 export const getHarnessVersion = (v: string) => api<HarnessVersion>(`/harness/versions/${encodeURIComponent(v)}`);

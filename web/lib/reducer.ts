@@ -36,7 +36,8 @@ export type MoleculeNodeData = {
   findings: number;   // reviewer findings naming this state
   depth: number;
   branch: number;
-  gtMismatch?: boolean; // view flag set by the canvas after "Compare with ground truth"
+  gtMismatch?: boolean; // view flag set by the canvas after "Compare with ground truth": no GT counterpart
+  gtSimilarity?: number; // view flag: similarity of the matched GT state (0..1)
 };
 export type MoleculeNode = Node<MoleculeNodeData, "molecule">;
 

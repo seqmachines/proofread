@@ -9,6 +9,7 @@ import type { BenchmarkRow } from "@/lib/events";
 import { API_URL, type BenchmarkGroupBy, getBenchmark } from "@/lib/api";
 import { benchmarkMetricNames } from "@/lib/benchmark";
 import { cx } from "@/lib/cx";
+import { isAuthor, useReviewer } from "@/lib/reviewer";
 
 const GROUPS: { key: BenchmarkGroupBy; label: string; field: keyof BenchmarkRow }[] = [
   { key: "version", label: "harness version", field: "harness_version" },
@@ -87,6 +88,7 @@ function GroupTable({ group, rows }: { group: (typeof GROUPS)[number]; rows: Ben
 }
 
 export function BenchmarkPage() {
+  const reviewer = useReviewer();
   const [state, setState] = useState<{ data: Record<BenchmarkGroupBy, BenchmarkRow[]> | null; error: string | null }>({ data: null, error: null });
 
   useEffect(() => {
@@ -119,9 +121,11 @@ export function BenchmarkPage() {
           <Link href="/memory" className="underline decoration-line hover:text-foreground">
             memory
           </Link>
-          <Link href="/harness" className="underline decoration-line hover:text-foreground">
-            harness
-          </Link>
+          {!isAuthor(reviewer) && (
+            <Link href="/harness" className="underline decoration-line hover:text-foreground">
+              harness
+            </Link>
+          )}
         </span>
       </header>
       <main className="min-h-0 flex-1 overflow-auto px-6 py-6">

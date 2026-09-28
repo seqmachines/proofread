@@ -142,9 +142,10 @@ export interface ChatProps {
   onSend: (text: string) => Promise<string | void>; // resolves to an optional info line
   onApply: (patch: Patch, systematic: boolean, errorType: ErrorType) => Promise<void>; // applies as a modify review
   pendingErrorType?: { target: string; error_type: ErrorType } | null; // chosen in the inspector before "modify"
+  showInput?: boolean; // false under EXECUTOR=none: no editor to talk to; patch cards still render here
 }
 
-export function Chat({ ui, offline, text, onText, focusKey = 0, onSend, onApply, pendingErrorType = null }: ChatProps) {
+export function Chat({ ui, offline, text, onText, focusKey = 0, onSend, onApply, pendingErrorType = null, showInput = true }: ChatProps) {
   const setText = onText;
   const inputRef = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
@@ -221,7 +222,20 @@ export function Chat({ ui, offline, text, onText, focusKey = 0, onSend, onApply,
           </ul>
         </div>
       )}
-      <div className="flex min-h-[3.25rem] items-center gap-2 px-3 py-1.5">
+      {!showInput && items.length === 0 && (
+        <div className="flex h-7 items-center gap-2 px-3 font-mono text-[10px] text-muted" data-chat-hidden>
+          no chat editor on this backend · modify a state from the inspector; patch cards appear here
+        </div>
+      )}
+      {!showInput && items.length > 0 && (
+        <div className="flex h-7 items-center gap-2 px-3 font-mono text-[10px] text-muted" data-chat-hidden>
+          patch cards · apply records a modify review
+          <button className={cx(btn, "ml-auto")} onClick={() => setCollapsed((c) => !c)}>
+            {collapsed ? `show ${items.length}` : "hide"}
+          </button>
+        </div>
+      )}
+      <div className={cx("flex min-h-[3.25rem] items-center gap-2 px-3 py-1.5", !showInput && "hidden")}>
         <span className="font-mono text-[10px] tracking-wide text-muted uppercase">chat</span>
         <textarea
           ref={inputRef}

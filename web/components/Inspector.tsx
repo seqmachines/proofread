@@ -6,7 +6,7 @@
 // falling back to the search snippet), checks + findings for this state, GT diff
 // (GET /runs/{id}/gt-diff; 404 → "not yet" until M4).
 import { useEffect, useState } from "react";
-import { ERROR_TYPES, type Chunk, type ErrorType, type GtDiff, type MoleculeState, type ReviewDecision, type Segment } from "@/lib/events";
+import { ERROR_TYPES, type Chunk, type ErrorType, type GtDiff, type GtTransition, type MoleculeState, type ReviewDecision, type Segment } from "@/lib/events";
 import type { MoleculeNode, UIState } from "@/lib/reducer";
 import { ApiError, getChunk, getGtDiff } from "@/lib/api";
 import { segmentColor, segmentText } from "@/lib/colors";
@@ -68,7 +68,7 @@ function useGtDiff(runId: string | null, hasGt: boolean | null, given: GtDiff | 
 }
 
 // gt-diff entries are MoleculeState-like objects (states) or {type, from, to} (edges); strings are ids.
-function GtList({ title, items, kind }: { title: string; items: unknown[] | undefined; kind: "state" | "edge" }) {
+function GtList({ title, items, kind }: { title: string; items: unknown[] | undefined; kind: "state" | "edge" | "transition" | "gt-transition" }) {
   const list = items ?? [];
   const [open, setOpen] = useState(false);
   if (list.length === 0) return null;
@@ -93,10 +93,19 @@ function GtList({ title, items, kind }: { title: string; items: unknown[] | unde
               </li>
             );
           }
-          if (kind === "edge") {
+          if (kind === "edge" || kind === "transition") {
             return (
               <li key={i} className="font-mono text-[10px]">
-                {String(o.from ?? o.source ?? "?")} → {String(o.to ?? o.target ?? "?")} {o.type ? <span className="text-muted">({String(o.type)})</span> : null}
+                {String(o.from ?? o.source ?? "?")} → {String(o.to ?? o.target ?? "?")}{" "}
+                <span className="text-muted">({String(o.op ?? o.type ?? "?")})</span>
+              </li>
+            );
+          }
+          if (kind === "gt-transition") {
+            const t = o as unknown as GtTransition;
+            return (
+              <li key={i} className="font-mono text-[10px]">
+                {t.operation} <span className="text-muted">{(t.substrate_state_ids ?? []).join(", ")} → {(t.product_state_ids ?? []).join(", ")}</span>
               </li>
             );
           }
@@ -196,6 +205,8 @@ export interface InspectorProps {
   gtDiff?: GtDiff | null; // already fetched by "Compare with ground truth"
   onReview: (decision: Exclude<ReviewDecision, "modify">, note: string, systematic: boolean, errorType: ErrorType | null) => Promise<void>;
   onModify: (note: string, errorType: ErrorType) => void; // opens the patch card path (chat → editor → apply as modify)
+  onDraft?: (sentence: string, errorType: ErrorType) => void; // no chat editor: draft the patch locally from a sentence
+  scopeNotice?: string | null; // author invited for another protocol: writes will be refused
   onClose: () => void;
 }
 
@@ -209,12 +220,28 @@ const DECISIONS: { id: ReviewDecision; label: string; cls: string; hint: string 
   { id: "unresolved", label: "unresolved", cls: "border-amber-500/60 text-amber-600 dark:text-amber-400", hint: "needs another look; counted in the queue" },
 ];
 
-function ReviewSection({ targetId, ui, onReview, onModify }: { targetId: string; ui: UIState; onReview: InspectorProps["onReview"]; onModify: InspectorProps["onModify"] }) {
+function ReviewSection({
+  targetId,
+  ui,
+  onReview,
+  onModify,
+  onDraft,
+  scopeNotice,
+}: {
+  targetId: string;
+  ui: UIState;
+  onReview: InspectorProps["onReview"];
+  onModify: InspectorProps["onModify"];
+  onDraft?: InspectorProps["onDraft"];
+  scopeNotice?: string | null;
+}) {
   const [note, setNote] = useState("");
   const [systematic, setSystematic] = useState(false);
   const [errorType, setErrorType] = useState<ErrorType | "">("");
   const [busy, setBusy] = useState<ReviewDecision | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [drafting, setDrafting] = useState(false);
+  const [sentence, setSentence] = useState("");
   const history = ui.reviews.filter((r) => r.target_id === targetId);
   const needsType = (d: ReviewDecision) => d === "modify" || d === "reject";
   const decide = async (d: ReviewDecision) => {
@@ -223,6 +250,11 @@ function ReviewSection({ targetId, ui, onReview, onModify }: { targetId: string;
       return;
     }
     if (d === "modify") {
+      if (onDraft) {
+        setDrafting(true);
+        setSentence(note.trim());
+        return;
+      }
       onModify(note.trim(), errorType as ErrorType);
       return;
     }
@@ -241,6 +273,11 @@ function ReviewSection({ targetId, ui, onReview, onModify }: { targetId: string;
   };
   return (
     <Section title={`review · ${history.length}`}>
+      {scopeNotice && (
+        <div className="mb-1.5 rounded border border-amber-500/50 bg-amber-500/10 px-2 py-1 font-mono text-[10px] text-amber-700 dark:text-amber-400" data-scope-notice>
+          {scopeNotice}
+        </div>
+      )}
       <div className="flex flex-wrap gap-1" role="group" aria-label="Review decision" data-review-actions>
         {DECISIONS.map((d) => (
           <button
@@ -277,6 +314,42 @@ function ReviewSection({ targetId, ui, onReview, onModify }: { targetId: string;
         <input type="checkbox" checked={systematic} onChange={(e) => setSystematic(e.target.checked)} className="accent-accent" />
         this will recur (systematic → harness signal)
       </label>
+      {drafting && onDraft && (
+        <div className="mt-1.5 rounded border border-accent/50 px-2 py-1.5" data-modify-composer>
+          <div className="mb-1 font-mono text-[10px] text-muted">describe the change — e.g. “add a 5′ handle to the top strand” or “remove the primer”</div>
+          <div className="flex items-center gap-1.5">
+            <input
+              value={sentence}
+              onChange={(e) => setSentence(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && sentence.trim()) {
+                  onDraft(sentence.trim(), errorType as ErrorType);
+                  setDrafting(false);
+                }
+              }}
+              placeholder="what should change on this state"
+              className="h-6 min-w-0 flex-1 rounded border border-line bg-panel px-1.5 font-mono text-[11px] text-foreground outline-none focus:border-accent"
+              aria-label="Modify sentence"
+              autoFocus
+            />
+            <button
+              className="h-6 rounded border border-accent px-2 font-mono text-[11px] leading-5 text-accent disabled:opacity-40"
+              disabled={!sentence.trim()}
+              onClick={() => {
+                onDraft(sentence.trim(), errorType as ErrorType);
+                setDrafting(false);
+              }}
+              data-modify-draft
+            >
+              draft patch
+            </button>
+            <button className="h-6 rounded border border-line px-2 font-mono text-[11px] leading-5 text-muted" onClick={() => setDrafting(false)}>
+              cancel
+            </button>
+          </div>
+          <div className="mt-1 font-mono text-[10px] text-muted">the patch card appears at the bottom; applying it records the modify review</div>
+        </div>
+      )}
       {error && <div className={cx("mt-1 font-mono text-[10px]", /nothing recorded/.test(error) ? "text-muted" : "text-rose-600 dark:text-rose-400")}>{error}</div>}
       {history.length > 0 && (
         <ul className="mt-1.5 flex flex-col gap-1 border-t border-line pt-1.5">
@@ -295,7 +368,7 @@ function ReviewSection({ targetId, ui, onReview, onModify }: { targetId: string;
   );
 }
 
-export function Inspector({ node, ui, runId, hasGt, gtDiff, onReview, onModify, onClose }: InspectorProps) {
+export function Inspector({ node, ui, runId, hasGt, gtDiff, onReview, onModify, onDraft, scopeNotice, onClose }: InspectorProps) {
   const { state, ghost, stale, discarded } = node.data;
   const incoming = ui.edges.filter((e) => e.target === state.id && !e.data?.discard).map((e) => e.data!.transition);
   const outgoing = ui.edges.filter((e) => e.source === state.id && !e.data?.discard).map((e) => e.data!.transition);
@@ -340,7 +413,7 @@ export function Inspector({ node, ui, runId, hasGt, gtDiff, onReview, onModify, 
           </div>
         </Section>
 
-        <ReviewSection targetId={state.id} ui={ui} onReview={onReview} onModify={onModify} />
+        <ReviewSection targetId={state.id} ui={ui} onReview={onReview} onModify={onModify} onDraft={onDraft} scopeNotice={scopeNotice} />
 
         <Section title="strands">
           <Strand name="top" ends={["5′", "3′"]} segments={state.strands.top} />
@@ -476,19 +549,50 @@ export function Inspector({ node, ui, runId, hasGt, gtDiff, onReview, onModify, 
           {hasGt === true && gt.note && <div className="text-muted">{gt.note}</div>}
           {hasGt === true && !gt.diff && !gt.note && <div className="text-muted">loading…</div>}
           {gt.diff && (
-            <div className="text-[11px]">
-              <div className="mb-1 flex flex-wrap gap-1">
-                <Tag tone={diffHas(gt.diff.extra_states, state.id) ? "rose" : "muted"}>
-                  this state: {diffHas(gt.diff.extra_states, state.id) ? "not in the ground truth" : "has a ground-truth counterpart"}
-                </Tag>
+            <div className="text-[11px]" data-gt-canonical>
+              {(() => {
+                const match = (gt.diff.matched_states ?? []).find((m) => m.predicted?.id === state.id);
+                const extra = diffHas(gt.diff.extra_states, state.id);
+                return match ? (
+                  <div className="mb-1.5 rounded border border-line px-2 py-1">
+                    <div className="flex items-center gap-1.5">
+                      <Tag tone={match.similarity >= 0.8 ? "accent" : "warn"}>matched · similarity {match.similarity.toFixed(2)}</Tag>
+                    </div>
+                    <div className="mt-1 flex items-center gap-1.5">
+                      <StrandGlyph state={match.truth} />
+                      <span className="truncate" title={match.truth.id}>
+                        {match.truth.label ?? match.truth.id}
+                      </span>
+                    </div>
+                    <div className="mt-0.5 font-mono text-[10px] text-muted">the ground-truth state this one aligns to, by segment structure</div>
+                  </div>
+                ) : (
+                  <div className="mb-1.5">
+                    <Tag tone={extra ? "rose" : "muted"}>{extra ? "no ground-truth counterpart" : "not part of the comparison"}</Tag>
+                  </div>
+                );
+              })()}
+              <div className="mb-1 font-mono text-[10px] text-muted">
+                {(gt.diff.matched_states ?? []).length} states matched · {(gt.diff.missing_states ?? []).length} GT unmatched ·{" "}
+                {(gt.diff.extra_states ?? []).length} predicted unmatched · transitions {(gt.diff.matched_transitions ?? []).length} matched /{" "}
+                {(gt.diff.missing_transitions ?? []).length} GT unmatched / {(gt.diff.extra_transitions ?? []).length} predicted unmatched
               </div>
-              <p className="mb-1 text-[10px] text-muted">
-                The diff matches by id, so ids that differ between the run and the ground truth show as missing + extra even when the molecules agree.
-              </p>
-              <GtList title="missing from this run" items={gt.diff.missing_states} kind="state" />
-              <GtList title="not in the ground truth" items={gt.diff.extra_states} kind="state" />
-              <GtList title="edges missing from this run" items={gt.diff.missing_edges} kind="edge" />
-              <GtList title="edges not in the ground truth" items={gt.diff.extra_edges} kind="edge" />
+              <GtList title="ground-truth states with no match in this run" items={gt.diff.missing_states} kind="state" />
+              <GtList title="predicted states with no ground-truth match" items={gt.diff.extra_states} kind="state" />
+              <GtList title="ground-truth transitions with no match" items={gt.diff.missing_transitions} kind="gt-transition" />
+              <GtList title="predicted transitions with no match" items={gt.diff.extra_transitions} kind="transition" />
+              {(gt.diff.matched_transitions ?? []).length > 0 && (
+                <details className="mb-1">
+                  <summary className="cursor-pointer font-mono text-[10px] text-muted">matched transitions · {(gt.diff.matched_transitions ?? []).length}</summary>
+                  <ul className="mt-0.5 flex flex-col gap-0.5 font-mono text-[10px]">
+                    {(gt.diff.matched_transitions ?? []).map((m, i) => (
+                      <li key={i}>
+                        {m.predicted.op} <span className="text-muted">↔ {m.truth.operation}</span> <Tag>{m.similarity.toFixed(2)}</Tag>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
             </div>
           )}
           {ui.gtScore && (

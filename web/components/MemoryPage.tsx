@@ -8,6 +8,7 @@ import { API_URL, getMemory, getProtocols, getReviews } from "@/lib/api";
 import { SEGMENT_TYPES, segmentColor } from "@/lib/colors";
 import { fmtTime } from "@/lib/format";
 import { cx } from "@/lib/cx";
+import { isAuthor, useReviewer } from "@/lib/reviewer";
 
 const OPS = ["reverse_transcription", "template_switching", "pcr", "fragmentation", "ligation", "tagmentation", "other"];
 const field =
@@ -79,6 +80,7 @@ function ProvenanceReview({ entity }: { entity: Entity }) {
 }
 
 export function MemoryPage() {
+  const reviewer = useReviewer();
   const [operation, setOperation] = useState("");
   const [type, setType] = useState("");
   const [state, setState] = useState<{ entities: Entity[] | null; error: string | null }>({ entities: null, error: null });
@@ -139,9 +141,11 @@ export function MemoryPage() {
           <Link href="/benchmark" className="underline decoration-line hover:text-foreground">
             benchmark
           </Link>
-          <Link href="/harness" className="underline decoration-line hover:text-foreground">
-            harness
-          </Link>
+          {!isAuthor(reviewer) && (
+            <Link href="/harness" className="underline decoration-line hover:text-foreground">
+              harness
+            </Link>
+          )}
         </span>
       </header>
       <main className="min-h-0 flex-1 overflow-auto px-6 py-6">

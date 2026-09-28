@@ -50,7 +50,8 @@ export interface CanvasProps {
   nodes: MoleculeNodeType[];
   edges: TransitionEdgeType[];
   selectedId?: string | null;
-  mismatch?: Set<string> | null; // state ids the GT diff marks as extra
+  mismatch?: Set<string> | null; // predicted state ids with no GT counterpart
+  similarity?: Map<string, number> | null; // predicted state id → similarity of its GT match
   tick?: number; // last applied event seq — drives the debounced refit
   onNodeClick?: (node: MoleculeNodeType) => void;
   onPaneClick?: () => void;
@@ -96,18 +97,19 @@ function useStableNodes(nodes: MoleculeNodeType[]): MoleculeNodeType[] {
   }, [nodes, cache]);
 }
 
-export function Canvas({ nodes, edges, selectedId = null, mismatch = null, tick = 0, onNodeClick, onPaneClick, className }: CanvasProps) {
+export function Canvas({ nodes, edges, selectedId = null, mismatch = null, similarity = null, tick = 0, onNodeClick, onPaneClick, className }: CanvasProps) {
   // Selection and GT highlighting are view state, not workflow state: applied on top of the reducer's nodes.
   const withView = useMemo(
     () =>
-      selectedId || (mismatch && mismatch.size > 0)
+      selectedId || (mismatch && mismatch.size > 0) || (similarity && similarity.size > 0)
         ? nodes.map((n) => {
             const sel = n.id === selectedId;
             const mm = Boolean(mismatch?.has(n.id));
-            return sel || mm ? { ...n, selected: sel, data: { ...n.data, gtMismatch: mm } } : n;
+            const sim = similarity?.get(n.id);
+            return sel || mm || sim !== undefined ? { ...n, selected: sel, data: { ...n.data, gtMismatch: mm, gtSimilarity: sim } } : n;
           })
         : nodes,
-    [nodes, selectedId, mismatch],
+    [nodes, selectedId, mismatch, similarity],
   );
   const shown = useStableNodes(withView);
   return (

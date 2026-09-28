@@ -8,13 +8,13 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
-import type { ErrorType, GtDiff, Protocol, ReviewDecision, ReviewInput, Reviewer, RunEvent } from "@/lib/events";
+import type { AppConfig, ErrorType, GtDiff, Protocol, ReviewDecision, ReviewInput, Reviewer, RunEvent } from "@/lib/events";
 import { fold, type Patch } from "@/lib/reducer";
 import { fixtureName, useFixtureEvents } from "@/lib/fixture";
 import { useRunEvents } from "@/lib/useRunEvents";
-import { ApiError, type ConnectionStatus, getGtDiff, getHarness, getProtocols, isAuthError, postReview, sendMessage, startRun } from "@/lib/api";
+import { ApiError, type ConnectionStatus, getConfig, getGtDiff, getHarness, getProtocols, isAuthError, postReview, sendMessage, startRun } from "@/lib/api";
 import { toast } from "@/lib/toast";
-import { type ReviewerIdentity, getReviewer, setReviewer, useReviewer } from "@/lib/reviewer";
+import { type ReviewerIdentity, getReviewer, isAuthor, setReviewer, useReviewer } from "@/lib/reviewer";
 import { offlineApply, offlinePropose, offlineReview } from "@/lib/offlineEditor";
 import { usePlayback } from "@/lib/usePlayback";
 import { cx } from "@/lib/cx";
@@ -71,6 +71,24 @@ function useProtocols(): Protocol[] | null {
   return protocols;
 }
 
+function useConfig(): AppConfig | null {
+  const [cfg, setCfg] = useState<AppConfig | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    getConfig()
+      .then((c) => {
+        if (!cancelled) setCfg(c);
+      })
+      .catch(() => {
+        /* unknown → assume an editor may exist */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return cfg;
+}
+
 function useActiveHarness(): string | null {
   const [id, setId] = useState<string | null>(null);
   useEffect(() => {
@@ -91,6 +109,11 @@ function useActiveHarness(): string | null {
 
 /** Asks for name + token on the first write (§6), keeps them in localStorage, and re-asks
  *  when the backend rejects the token. `withIdentity` runs a write with that guarantee. */
+// An author's token is valid but scoped to one protocol: a 403 there is not a bad token, so
+// don't re-prompt for identity — explain the scope instead.
+const outOfScope = (e: unknown) => e instanceof ApiError && e.status === 403 && isAuthor(getReviewer());
+const scopeError = () => new Error(`your invite covers ${getReviewer()?.protocol_id ?? "another protocol"} — this run is outside it, so the decision was refused`);
+
 function useIdentity() {
   const reviewer = useReviewer();
   const [prompt, setPrompt] = useState<{ reason: string | null; resolve: (r: ReviewerIdentity | null) => void } | null>(null);
@@ -106,6 +129,7 @@ function useIdentity() {
       return await write();
     } catch (e) {
       if (!isAuthError(e)) throw e;
+      if (outOfScope(e)) throw scopeError();
       const r = await ask("token rejected by the backend — check REVIEW_TOKENS");
       if (!r) throw e;
       setReviewer(r);
@@ -119,13 +143,14 @@ function useIdentity() {
       return await write();
     } catch (e) {
       if (!isAuthError(e)) throw e;
+      if (outOfScope(e)) throw scopeError();
       const r = await ask(getReviewer() ? "token rejected by the backend — check REVIEW_TOKENS" : null);
       if (!r) throw e;
       setReviewer(r);
       return write();
     }
   };
-  const asReviewer = (): Reviewer => ({ id: reviewer?.name ?? "curator", name: reviewer?.name ?? "curator", role: "curator" });
+  const asReviewer = (): Reviewer => ({ id: reviewer?.name ?? "curator", name: reviewer?.name ?? "curator", role: reviewer?.role ?? "curator" });
   const modal = prompt ? (
     <ReviewerPrompt
       initial={getReviewer()}
@@ -244,6 +269,13 @@ export function Workbench({ runId }: { runId: string }) {
     if (decision === "reject") setSelectedId(null);
   };
 
+  // The backend names the reviewer's role on review_recorded; keep the stored identity in sync.
+  const lastRole = full.reviews.length ? full.reviews[full.reviews.length - 1].reviewer.role : null;
+  useEffect(() => {
+    const r = getReviewer();
+    if (r && lastRole && r.role !== lastRole && full.reviews[full.reviews.length - 1].reviewer.name === r.name) setReviewer({ ...r, role: lastRole });
+  }, [lastRole, full.reviews]);
+
   // modify → remember the chosen category, seed the chat with the target and note; the
   // patch card's apply records the review.
   const [chatText, setChatText] = useState("");
@@ -254,6 +286,13 @@ export function Workbench({ runId }: { runId: string }) {
     setPendingModify({ target: selected.id, error_type: errorType });
     setChatText(note ? `modify ${selected.id}: ${note}` : `modify ${selected.id}: `);
     setChatFocus((k) => k + 1);
+  };
+  // No chat editor (EXECUTOR=none): the inspector's composer drafts the patch locally.
+  const onDraft = (sentence: string, errorType: ErrorType) => {
+    if (!selected) return;
+    setPendingModify({ target: selected.id, error_type: errorType });
+    setExtra((x) => [...x, ...offlinePropose(full, sentence, full.lastSeq + 1, selected.id)]);
+    pb.play();
   };
 
   const { restart, setSpeed } = pb;
@@ -282,6 +321,13 @@ export function Workbench({ runId }: { runId: string }) {
   const hasGt = protocols === null ? null : (protocol?.has_gt ?? false);
   const conn = isFixture ? { text: "offline replay", cls: "text-muted" } : CONN[live.status];
   const activeHarness = useActiveHarness();
+  const config = useConfig();
+  const noEditor = config?.executor === "none";
+  const author = isAuthor(identity.reviewer);
+  const scopeNotice =
+    author && identity.reviewer?.protocol_id && ui.protocolId && identity.reviewer.protocol_id !== ui.protocolId
+      ? `your invite covers ${identity.reviewer.protocol_id}; decisions on this ${ui.protocolId} run will be refused`
+      : null;
 
   // After run_finished: run again on the active harness, and compare with ground truth.
   const finished = ui.status === "done" || ui.status === "failed";
@@ -313,12 +359,19 @@ export function Workbench({ runId }: { runId: string }) {
       setComparing(false);
     }
   };
-  // Highlight states the GT lacks and states on edges the GT lacks.
+  // Canonical diff: predicted states with no GT counterpart get the amber ring; matched
+  // states carry their similarity. (Legacy diffs without matched_states fall back to edges.)
   const mismatch = useMemo(() => {
     if (!gtDiff) return null;
     const ids = new Set(ui.nodes.map((n) => n.id));
-    return new Set([...diffIds(gtDiff.extra_states), ...edgeEnds(gtDiff.extra_edges)].filter((id) => ids.has(id)));
+    const extra = diffIds(gtDiff.extra_states);
+    const legacy = gtDiff.matched_states ? [] : edgeEnds(gtDiff.extra_edges);
+    return new Set([...extra, ...legacy].filter((id) => ids.has(id)));
   }, [gtDiff, ui.nodes]);
+  const similarity = useMemo(() => {
+    if (!gtDiff?.matched_states) return null;
+    return new Map(gtDiff.matched_states.filter((m) => m.predicted?.id).map((m) => [m.predicted.id, m.similarity]));
+  }, [gtDiff]);
 
   return (
     <div className="flex h-dvh flex-col bg-background text-foreground">
@@ -337,9 +390,11 @@ export function Workbench({ runId }: { runId: string }) {
         <Link href="/queue" className="ml-3 font-mono text-[11px] text-muted underline decoration-line hover:text-foreground">
           queue
         </Link>
-        <Link href="/harness" className="font-mono text-[11px] text-muted underline decoration-line hover:text-foreground">
-          harness
-        </Link>
+        {!author && (
+          <Link href="/harness" className="font-mono text-[11px] text-muted underline decoration-line hover:text-foreground">
+            harness
+          </Link>
+        )}
         <Link href="/benchmark" className="font-mono text-[11px] text-muted underline decoration-line hover:text-foreground">
           benchmark
         </Link>
@@ -349,15 +404,19 @@ export function Workbench({ runId }: { runId: string }) {
             title={`reviewing as ${identity.reviewer.name} · click to change name or token`}
             onClick={() => setReviewer(null)}
             data-reviewer={identity.reviewer.name}
+            data-role={identity.reviewer.role ?? ""}
           >
             · {identity.reviewer.name}
+            {identity.reviewer.role === "author" ? " (author)" : ""}
           </button>
         )}
         {finished && protocol && (
           <span className="ml-3 flex items-center gap-1.5" data-after-run>
-            <button className={btn} onClick={() => void runAgain()} disabled={starting} title={`POST /runs {protocol_id: ${ui.protocolId}}`}>
-              {starting ? "starting…" : `run again on ${activeHarness ?? "active harness"}`}
-            </button>
+            {!scopeNotice && (
+              <button className={btn} onClick={() => void runAgain()} disabled={starting} title={`POST /runs {protocol_id: ${ui.protocolId}}`}>
+                {starting ? "starting…" : `run again on ${activeHarness ?? "active harness"}`}
+              </button>
+            )}
             {hasGt && !isFixture && (
               <button
                 className={cx(btn, gtDiff && "border-amber-500 text-amber-600 dark:text-amber-400")}
@@ -365,7 +424,13 @@ export function Workbench({ runId }: { runId: string }) {
                 disabled={comparing}
                 title="GET /runs/{id}/gt-diff — highlights states the ground truth does not have"
               >
-                {comparing ? "comparing…" : gtDiff ? `GT: ${diffIds(gtDiff.missing_states).length} missing · ${diffIds(gtDiff.extra_states).length} extra · ${(gtDiff.missing_edges ?? []).length}/${(gtDiff.extra_edges ?? []).length} edges ✕` : "compare with ground truth"}
+                {comparing
+                  ? "comparing…"
+                  : gtDiff
+                    ? gtDiff.matched_states
+                      ? `GT: ${gtDiff.matched_states.length} matched · ${diffIds(gtDiff.missing_states).length} GT-only · ${diffIds(gtDiff.extra_states).length} predicted-only ✕`
+                      : `GT: ${diffIds(gtDiff.missing_states).length} missing · ${diffIds(gtDiff.extra_states).length} extra ✕`
+                    : "compare with ground truth"}
               </button>
             )}
           </span>
@@ -396,6 +461,7 @@ export function Workbench({ runId }: { runId: string }) {
             edges={ui.edges}
             selectedId={selected ? selectedId : null}
             mismatch={mismatch}
+            similarity={similarity}
             tick={ui.lastSeq}
             onNodeClick={(n) => setSelectedId(n.id)}
             onPaneClick={() => setSelectedId(null)}
@@ -425,6 +491,8 @@ export function Workbench({ runId }: { runId: string }) {
               gtDiff={gtDiff}
               onReview={onReview}
               onModify={onModify}
+              onDraft={noEditor ? onDraft : undefined}
+              scopeNotice={scopeNotice}
               onClose={() => setSelectedId(null)}
             />
           )}
@@ -433,7 +501,17 @@ export function Workbench({ runId }: { runId: string }) {
       </div>
 
       <div className="shrink-0">
-        <Chat ui={ui} offline={isFixture} text={chatText} onText={setChatText} focusKey={chatFocus} onSend={onSend} onApply={onApply} pendingErrorType={pendingModify} />
+        <Chat
+          ui={ui}
+          offline={isFixture}
+          text={chatText}
+          onText={setChatText}
+          focusKey={chatFocus}
+          onSend={onSend}
+          onApply={onApply}
+          pendingErrorType={pendingModify}
+          showInput={!noEditor || isFixture}
+        />
         <StatusBar ui={ui} />
       </div>
       {identity.modal}
