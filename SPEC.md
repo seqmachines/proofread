@@ -138,6 +138,14 @@ Append-only. `{ run_id, seq, ts, t, ...payload }`, `seq` per run from 1. Harness
   saved benchmark metrics, and verifier scores. State and transition IDs stay
   stable so existing reviews still resolve. Repeating the same normalization
   is a no-op. Live runs remain append-only without exception.
+- Evidence follow-up (approved 2026-09-28): imported state commits with empty
+  `evidence` inherit the unique chunk IDs from the three nearest preceding
+  nonempty `evidence_searched` events, newest reads first. Adjacent commits
+  share that context until another read occurs; no later read is used. Preserve
+  existing citations and explicit review edits to evidence. During whole-stream
+  re-normalization, only this evidence enrichment may change the saved graph;
+  carry it through retained edits that left evidence unchanged. Review documents
+  and their original before/after snapshots remain unchanged.
 - Existing clients must reload and replay from `since=0` after re-normalization,
   because their previous sequence cursors refer to the original ordering.
 
@@ -239,6 +247,10 @@ stored author invite. Reads are public except curator-only `GET /invites`.
   curator can create or list invites. Store a token digest; return the token
   only when it is created. `GET /invites` returns the same metadata without
   tokens or digests, newest first.
+- `DELETE /invites/{id}` (approved 2026-09-28) accepts an `invite_id`, requires
+  a curator, and deletes that invite so its token no longer authenticates.
+  Return 204 with no body, or 404 if the invite does not exist. Retain reviews
+  already attributed to the invite's author.
 - Invite tokens resolve through `X-Review-Token` to an author with one
   `protocol_id`. All run write routes enforce that scope, returning 403 for
   another protocol. Creating runs also requires a review token and enforces
@@ -262,6 +274,7 @@ stored author invite. Reads are public except curator-only `GET /invites`.
 | POST | `/import` | `{source: benchmark \| harbor, path}` → `{records: n, runs: n}` (local only) |
 | POST | `/invites` | `{protocol_id, name}` → invite metadata plus one-time `token` (curator only) |
 | GET | `/invites` | → invite metadata without tokens/digests (curator only) |
+| DELETE | `/invites/{id}` | → 204; 404 if absent (curator only) |
 
 ### 2.7 Semantics
 
@@ -276,6 +289,9 @@ stored author invite. Reads are public except curator-only `GET /invites`.
 - Executor never writes `entities`. Only `reviews.py` (accepted items) and `gate.py` (promoted runs) do.
 - Benchmark import emits `benchmark_scored` before `run_finished`, never relabels benchmark metrics, and never uses them as Gate baselines. Import is keyed on `(executor, model, harness_version, protocol)`; re-import updates, never duplicates. Normalization must be re-runnable from `benchmark_records` alone.
 - **Imported-run re-normalization (M14, approved 2026-09-28):** only `source: benchmark | harbor` may have its entire event stream rebuilt from archived records and trajectory under the same `run_id`, per §2.2. Preserve state/transition IDs, reviews and applied edits, workflow revisions, and both score sets; record `runs.normalization_version` and make identical re-runs a no-op. Rebuild through `emit()` in one transaction, with trace events before commits. Never splice the existing stream or apply this exception to live runs; live event logs remain append-only.
+- Imported evidence enrichment follows §2.2's approved nearest-read rule. All
+  other graph fields and scores must match the saved projection before the
+  replacement commits.
 
 ## 3. Data (MongoDB Atlas)
 

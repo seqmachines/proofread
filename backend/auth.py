@@ -27,7 +27,8 @@ def reviewer_for_token(token):
 
 
 def requires_review_token(method, path):
-    return (path == '/invites' and method in {'GET', 'POST'}) or (method == 'POST' and
+    return ((path == '/invites' and method in {'GET', 'POST'}) or
+            (path.startswith('/invites/') and method == 'DELETE')) or (method == 'POST' and
             (path in {'/runs', '/import'} or path.startswith(('/runs/', '/harness/'))))
 
 
@@ -37,7 +38,7 @@ def require_protocol(reviewer, protocol_id):
 
 
 def authorize(reviewer, path):
-    if path in {'/invites', '/import'} or path.startswith('/harness/'):
+    if path in {'/invites', '/import'} or path.startswith(('/invites/', '/harness/')):
         if reviewer['role'] != 'curator':
             raise HTTPException(status_code=403, detail='This action requires a curator')
     elif path.startswith('/runs/'):

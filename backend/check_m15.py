@@ -132,6 +132,18 @@ def check():
             assert client.post(f"/runs/{own}/messages", json={"text": "Edit this graph"}, headers=headers["author"]).status_code == 501
             assert all(list(db.events.find({"run_id": rid})) == events for rid, events in snapshots.items())
             print("Author review: own protocol 200; other protocol and curator actions 403; chat 501 with no writes.", flush=True)
+            path = "/invites/" + invitation["invite_id"]
+            assert client.delete(path).status_code == 401
+            assert client.delete(path, headers=headers["author"]).status_code == 403
+            preflight = client.options(path, headers={"Origin": os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")[0].strip(),
+                "Access-Control-Request-Method": "DELETE", "Access-Control-Request-Headers": "X-Review-Token"})
+            assert preflight.status_code == 200 and "DELETE" in preflight.headers["access-control-allow-methods"]
+            deleted = client.delete(path, headers=headers["curator"])
+            assert deleted.status_code == 204 and not deleted.content
+            assert client.delete(path, headers=headers["curator"]).status_code == 404
+            assert client.post(f"/runs/{own}/reviews", json=body, headers=headers["author"]).status_code == 401
+            assert db.reviews.find_one({"_id": review["_id"]}) == review
+            print("Invite deletion: curator-only, browser preflight, token revocation and retained review passed.", flush=True)
 
             paper = db.runs.find_one({"protocol_id": "smart_seq", "source": "benchmark"})
             rid = paper["run_id"]

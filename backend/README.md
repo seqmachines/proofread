@@ -690,8 +690,9 @@ and workflow in one transaction through `emit()`: start, trace, final graph,
 checks and benchmark scores, retained review/edit/scoring history, finish.
 The old stream is archived in `benchmark_records.normalization.original_events`.
 Run IDs, graph IDs, reviews, workflow revisions and both score sets are
-preserved; a rebuild that would change the current workflow is rejected.
-`runs.normalization_version` records `m14.1`. Identical normalization is a no-op.
+preserved; a rebuild that would change any graph field other than the approved
+evidence enrichment is rejected. `runs.normalization_version` records `m14.2`.
+Identical normalization is a no-op.
 Both importer and event writer refuse re-normalization of live runs.
 
 Reload an already-open run after normalization to replay from `since=0`.
@@ -763,3 +764,30 @@ succeeds and a cross-protocol review returns 403, checks disabled chat and
 curator restrictions, canonical alignment, public messages, and chunk resolution.
 It removes only its temporary records and verifies all saved runs are unchanged.
 See `M15_RESULTS.md` for deployment and verification results.
+
+### Evidence links and invite removal
+
+Normalization `m14.2` fills empty imported state evidence from the three nearest
+preceding nonempty `evidence_searched` events. It stores unique chunk IDs,
+newest read first. Adjacent final graph commits share this context; later reads
+never become evidence for an earlier commit. Existing citations and explicit
+human changes to evidence are retained. Replayed review edits that left evidence
+unchanged inherit the added links; original review documents remain unchanged.
+The links identify recorded reads, without claiming a separate source citation
+was explicitly authored for each state.
+
+To apply and verify the backfill using only the MongoDB archive:
+
+```sh
+backend/.venv/bin/python -m backend.check_import_evidence
+```
+
+The check normalizes the selected 20 runs, checks every link and preservation
+of other graph fields/scores/reviews, refuses live-run replacement, and verifies
+that a second normalization changes nothing. Reload open run pages from
+`since=0` after normalization so the evidence chips use the rebuilt commits.
+
+Curators can remove an invite with `DELETE /invites/{invite_id}` and
+`X-Review-Token`. Success returns 204 with no body; a missing invite returns 404.
+Its token immediately stops authenticating new requests. Existing reviews
+retain their author attribution. Browser CORS permits the DELETE method.

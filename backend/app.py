@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo.errors import PyMongoError
 from pydantic import BaseModel, ConfigDict, Field
@@ -58,7 +58,7 @@ async def authenticate_writes(request, call_next):
 
 
 app.add_middleware(CORSMiddleware, allow_origins=[v.strip() for v in os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",") if v.strip()],
-                   allow_methods=["GET", "POST"], allow_headers=["*"])
+                   allow_methods=["GET", "POST", "DELETE"], allow_headers=["*"])
 
 
 def require_run(run_id):
@@ -87,6 +87,13 @@ def post_invite(body: InviteRequest):
 @app.get("/invites")
 def get_invites():
     return list(get_db().invites.find({}, {"_id": 0}).sort([("created_at", -1), ("invite_id", 1)]))
+
+
+@app.delete("/invites/{invite_id}", status_code=204)
+def delete_invite(invite_id: str):
+    if not get_db().invites.delete_one({"invite_id": invite_id}).deleted_count:
+        raise HTTPException(status_code=404, detail="Invite not found")
+    return Response(status_code=204)
 
 
 @app.get("/config")

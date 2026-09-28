@@ -1,12 +1,13 @@
 """Pure mapping of saved Harbor trajectories. Never execute recorded commands."""
 
 import ast
+from copy import deepcopy
 import hashlib
 import json
 import re
 
 
-NORMALIZATION_VERSION = "m14.1"
+NORMALIZATION_VERSION = "m14.2"
 SEQUENCE = re.compile(r"(?<![A-Za-z])[ACGTUNacgtun]{10,}(?![A-Za-z])")
 SECRET = re.compile(
     r"(?i)(?:\b(?:sk-[\w-]{12,}|gh[pousr]_[\w]{12,})|"
@@ -20,6 +21,42 @@ READ = re.compile(
     r"\b(?:open|PdfReader|load_workbook)\(|\bview_image\("
 )
 ASSUMPTION = re.compile(r"(?i)^(?:[-*]\s*)?(?:assumptions?\s*:|(?:I|we)\s+(?:assume|am assuming|are assuming)\b|assuming\b)")
+
+
+def link_state_evidence(events):
+    """Fill imported commits from prior reads; preserve explicit evidence edits.
+
+    Return a copied event stream and its final state evidence. Review documents
+    stay untouched; replay before/after payloads inherit the added citations
+    only when the original edit left evidence unchanged.
+    """
+    reads, linked, original, result = [], {}, {}, []
+    for raw in events:
+        event = deepcopy(raw)
+        if event["t"] == "evidence_searched":
+            ids = list(dict.fromkeys(hit["chunk_id"] for hit in event["results"]))
+            if ids:
+                reads = [ids, *reads[:2]]
+        elif event["t"] == "state_committed":
+            state = event["state"]
+            original[state["id"]] = list(state["evidence"])
+            if not state["evidence"]:
+                state["evidence"] = list(dict.fromkeys(cid for hits in reads for cid in hits))
+            linked[state["id"]] = list(state["evidence"])
+        elif event["t"] == "state_revised":
+            sid, before, after = event["state_id"], event["before"], event["after"]
+            if before is not None and sid in linked and before["evidence"] == original[sid]:
+                if after is not None and after["evidence"] == before["evidence"]:
+                    after["evidence"] = list(linked[sid])
+                before["evidence"] = list(linked[sid])
+            if after is None:
+                original.pop(sid, None)
+                linked.pop(sid, None)
+            else:
+                original[sid] = list(raw["after"]["evidence"])
+                linked[sid] = list(after["evidence"])
+        result.append(event)
+    return result, linked
 
 
 def clean(text, limit=12000):

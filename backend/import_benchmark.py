@@ -7,6 +7,7 @@ python -m backend.import_benchmark --normalize-only
 import argparse
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -23,7 +24,7 @@ if __package__:
 
 from db import get_db
 from engine import emit
-from harbor import NORMALIZATION_VERSION, map_trajectory
+from harbor import NORMALIZATION_VERSION, link_state_evidence, map_trajectory
 from cdna.molecule import MoleculeState, Transition
 from tool_models import BenchmarkScore
 from seed import BASES, BENCHMARK, convert_ground_truth
@@ -342,7 +343,20 @@ def import_record(record):
             history = {**history, "original_events": history.get("original_events", original),
                        "continuation": continuation}
             db.benchmark_records.update_one({"_id": archive_id}, {"$set": {"normalization": history}}, session=session)
-        batch = {"previous": previous, "expected_workflow": workflow,
+        events = [*record["trace"],
+                  *({"t": "state_committed", "state": s, "workflow_revision": 1} for s in record["graph"]["states"]),
+                  *({"t": "transition_committed", "transition": t, "workflow_revision": 1} for t in record["graph"]["transitions"]),
+                  *({"t": "verifier_check", **c} for c in record["checks"]),
+                  {"t": "benchmark_scored", **record["score"]}, *continuation]
+        events, linked = link_state_evidence(events)
+        expected = deepcopy(workflow)
+        if expected:
+            # §2.2 permits only evidence enrichment. The event writer still
+            # requires exact equality for graph structure, reviews and scores.
+            for state in expected["states"]:
+                if state["id"] in linked:
+                    state["evidence"] = linked[state["id"]]
+        batch = {"previous": previous, "expected_workflow": expected,
                  "normalization_version": NORMALIZATION_VERSION}
         def send(t, *, timestamp=None, **payload):
             if timestamp:
@@ -351,17 +365,8 @@ def import_record(record):
         send("run_started", protocol_id=protocol["_id"], harness_version=record["harness_version"],
              executor=record["executor"], source=previous["source"] if previous else record["source"],
              import_record=record["provenance"])
-        for event in record["trace"]:
-            send(event["t"], **{k: v for k, v in event.items() if k != "t"})
-        for state in record["graph"]["states"]:
-            send("state_committed", state=state, workflow_revision=1)
-        for transition in record["graph"]["transitions"]:
-            send("transition_committed", transition=transition, workflow_revision=1)
-        for check in record["checks"]:
-            send("verifier_check", **check)
-        send("benchmark_scored", **record["score"])
-        for event in continuation:
-            send(event["t"], timestamp=event["ts"],
+        for event in events:
+            send(event["t"], timestamp=event.get("ts"),
                  **{k: v for k, v in event.items() if k not in {"_id", "run_id", "seq", "ts", "t"}})
         if record["chunks"]:
             db.chunks.bulk_write([ReplaceOne({"_id": c["_id"]}, c, upsert=True)
