@@ -25,7 +25,8 @@ const edgeTypes = { transition: TransitionEdge };
 const defaultEdgeOptions: DefaultEdgeOptions = {
   markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14 },
 };
-const fitViewOptions: FitViewOptions = { padding: 0.2, maxZoom: 1 };
+// Long workflows stack vertically; never shrink nodes below ~70% — the rest is reached by scrolling.
+const fitViewOptions: FitViewOptions = { padding: 0.15, minZoom: 0.7, maxZoom: 1 };
 
 // Refit whenever a node appears. The store's fitView() queues itself until the
 // new node is measured, so no "nodes initialized" guard is needed here.
@@ -123,6 +124,9 @@ export function Canvas({ nodes, edges, selectedId = null, mismatch = null, tick 
           fitViewOptions={fitViewOptions}
           minZoom={0.2}
           maxZoom={1.75}
+          panOnScroll
+          zoomOnScroll={false}
+          zoomActivationKeyCode="Meta"
           nodesDraggable={false}
           nodesConnectable={false}
           elementsSelectable

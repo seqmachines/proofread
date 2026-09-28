@@ -33,6 +33,8 @@ const isSource = (x: unknown): x is ProtocolSource =>
   x !== null &&
   typeof (x as { run_id?: unknown }).run_id === "string";
 
+const shortVersion = (v: string) => (v.includes("/") ? v.slice(v.lastIndexOf("/") + 1) : v);
+
 /** The headline saved metric for a benchmark record, labeled as what it is. */
 function benchmarkHeadline(
   s: ProtocolSource,
@@ -51,7 +53,7 @@ function SourceButton({ s }: { s: ProtocolSource }) {
     <Link
       href={`/runs/${encodeURIComponent(s.run_id)}`}
       className={cx(btn, "inline-flex items-center gap-1.5 no-underline")}
-      title={`open /runs/${s.run_id}${head ? ` · ${head.label} ${head.value.toFixed(2)} (benchmark record)` : ""}`}
+      title={`open /runs/${s.run_id} · harness ${s.harness_version}${head ? ` · ${head.label} ${head.value.toFixed(2)} (benchmark record)` : ""}`}
       data-source-run={s.run_id}
     >
       <span
@@ -65,7 +67,7 @@ function SourceButton({ s }: { s: ProtocolSource }) {
       <span>
         {s.executor}
         {s.model && s.model !== "—" ? ` · ${s.model}` : ""} ·{" "}
-        {s.harness_version}
+        {shortVersion(s.harness_version)}
       </span>
       {head && (
         <span

@@ -12,7 +12,7 @@ import type { ErrorType, GtDiff, Protocol, ReviewDecision, ReviewInput, Reviewer
 import { fold, type Patch } from "@/lib/reducer";
 import { fixtureName, useFixtureEvents } from "@/lib/fixture";
 import { useRunEvents } from "@/lib/useRunEvents";
-import { type ConnectionStatus, getGtDiff, getHarness, getProtocols, isAuthError, postReview, sendMessage, startRun } from "@/lib/api";
+import { ApiError, type ConnectionStatus, getGtDiff, getHarness, getProtocols, isAuthError, postReview, sendMessage, startRun } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { type ReviewerIdentity, getReviewer, setReviewer, useReviewer } from "@/lib/reviewer";
 import { offlineApply, offlinePropose, offlineReview } from "@/lib/offlineEditor";
@@ -46,7 +46,7 @@ const edgeEnds = (list: unknown[] | undefined) =>
 const CONN: Record<ConnectionStatus, { text: string; cls: string }> = {
   idle: { text: "—", cls: "text-muted" },
   connecting: { text: "connecting…", cls: "text-muted" },
-  live: { text: "● live", cls: "text-emerald-600 dark:text-emerald-400" },
+  live: { text: "● connected", cls: "text-emerald-600 dark:text-emerald-400" },
   reconnecting: { text: "○ reconnecting…", cls: "text-amber-600 dark:text-amber-400" },
   polling: { text: "● polling", cls: "text-muted" },
   closed: { text: "closed", cls: "text-muted" },
@@ -112,6 +112,19 @@ function useIdentity() {
       return write();
     }
   };
+  // Like withIdentity, but only asks after the backend says 401/403 (for routes that may not
+  // exist at all — a 404 should not be preceded by an identity prompt).
+  const retryOnAuth = async <T,>(write: () => Promise<T>): Promise<T> => {
+    try {
+      return await write();
+    } catch (e) {
+      if (!isAuthError(e)) throw e;
+      const r = await ask(getReviewer() ? "token rejected by the backend — check REVIEW_TOKENS" : null);
+      if (!r) throw e;
+      setReviewer(r);
+      return write();
+    }
+  };
   const asReviewer = (): Reviewer => ({ id: reviewer?.name ?? "curator", name: reviewer?.name ?? "curator", role: "curator" });
   const modal = prompt ? (
     <ReviewerPrompt
@@ -127,7 +140,7 @@ function useIdentity() {
       }}
     />
   ) : null;
-  return { reviewer, withIdentity, asReviewer, modal };
+  return { reviewer, withIdentity, retryOnAuth, asReviewer, modal };
 }
 
 export function Workbench({ runId }: { runId: string }) {
@@ -139,16 +152,15 @@ export function Workbench({ runId }: { runId: string }) {
   // Replay: live runs resubscribe from seq 0 with speed=8 (server-paced), fixtures restart.
   const [replayKey, setReplayKey] = useState(0);
   const live = useRunEvents(isFixture ? null : runId, { speed: replayKey > 0 ? 8 : 1, key: replayKey });
-  // Offline chat: the local editor appends its events after the fixture's.
+  // Events the local editor appends (fixtures always; live runs when the server has no editor).
   const [extra, setExtra] = useState<RunEvent[]>([]);
-  const events = useMemo(
-    () => (isFixture ? [...fixture.events, ...extra] : live.events),
-    [isFixture, fixture.events, extra, live.events],
-  );
+  const events = useMemo(() => [...(isFixture ? fixture.events : live.events), ...extra], [isFixture, fixture.events, live.events, extra]);
   const error = isFixture ? fixture.error : live.error;
   const protocols = useProtocols();
 
-  const pb = usePlayback(events.length, { autoplay: true });
+  // A run that is already finished opens complete; running and fixture runs animate.
+  const finishedOnLoad = !isFixture && (live.run?.status === "done" || live.run?.status === "failed");
+  const pb = usePlayback(events.length, { autoplay: true, openAtEnd: finishedOnLoad });
   const ui = useMemo(() => fold(events.slice(0, pb.cursor)), [events, pb.cursor]);
   const full = useMemo(() => fold(events), [events]); // complete state, for the offline editor and reviews
   const current = pb.cursor > 0 ? events[pb.cursor - 1] : undefined;
@@ -157,12 +169,23 @@ export function Workbench({ runId }: { runId: string }) {
 
   const onSend = async (text: string): Promise<string | void> => {
     if (isFixture) {
-      setExtra((x) => [...x, ...offlinePropose(full, text, full.lastSeq + 1)]);
+      setExtra((x) => [...x, ...offlinePropose(full, text, full.lastSeq + 1, pendingModify?.target)]);
       pb.play();
       return;
     }
-    const res = await identity.withIdentity(() => sendMessage(runId, text));
-    if (res.queued) return "queued — the agent drains messages at its next step";
+    try {
+      const res = await identity.retryOnAuth(() => sendMessage(runId, text));
+      if (res.queued) return "queued — the agent drains messages at its next step";
+    } catch (e) {
+      // No editor on this backend (404/501): draft the patch locally; applying it still records
+      // the modify review on the server, which does the repair.
+      if (e instanceof ApiError && (e.status === 404 || e.status === 501)) {
+        setExtra((x) => [...x, ...offlinePropose(full, text, full.lastSeq + 1, pendingModify?.target)]);
+        pb.play();
+        return "no editor on this backend — the patch below was drafted locally; apply records the review";
+      }
+      throw e;
+    }
   };
   // Applying a patch card = a `modify` review (§5 step 1 repairs, step 2 signals). The
   // reviewer chooses the §2.4 error category; the reviewer identity comes from the token.

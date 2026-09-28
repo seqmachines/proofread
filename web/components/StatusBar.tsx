@@ -14,6 +14,8 @@ const DOT: Record<UIState["status"], string> = {
   failed: "bg-rose-500",
 };
 
+const shortVersion = (v: string) => (v.includes("/") ? v.slice(v.lastIndexOf("/") + 1) : v);
+
 function Sep() {
   return <span className="text-line select-none">·</span>;
 }
@@ -25,16 +27,32 @@ export function StatusBar({ ui }: { ui: UIState }) {
         <span className={cx("inline-block h-1.5 w-1.5 rounded-full", DOT[ui.status])} />
         {ui.status}
       </span>
+      {ui.step > 0 && (
+        <>
+          <Sep />
+          <span>step {ui.step}</span>
+        </>
+      )}
       <Sep />
-      <span>step {ui.step}</span>
-      <Sep />
-      <span>harness {ui.harnessVersion ?? "—"}</span>
+      <span title={ui.harnessVersion ?? undefined}>harness {shortVersion(ui.harnessVersion ?? "—")}</span>
       <Sep />
       <span>rev {ui.workflowRevision}</span>
-      <Sep />
-      <span>{fmtInt(ui.tokens.lastCall)} tok/call</span>
-      <Sep />
-      <span>{fmtCompact(ui.tokens.cumulative)} total</span>
+      {ui.source && ui.source !== "live" && (
+        <>
+          <Sep />
+          <span className="rounded-sm border border-line px-1 text-[10px] leading-[14px] text-muted" title="imported from a benchmark record; no agent trace or token counts">
+            {ui.source} record{ui.executor ? ` · ${ui.executor}` : ""}
+          </span>
+        </>
+      )}
+      {(ui.tokens.lastCall > 0 || ui.tokens.cumulative > 0) && (
+        <>
+          <Sep />
+          <span>{fmtInt(ui.tokens.lastCall)} tok/call</span>
+          <Sep />
+          <span>{fmtCompact(ui.tokens.cumulative)} total</span>
+        </>
+      )}
       <span className="ml-auto flex items-center gap-2 text-muted">
         {ui.harness.promoted && (
           <Link href="/harness" className="text-accent hover:underline" title="promoted by the gate during this run — open /harness">

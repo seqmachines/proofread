@@ -34,7 +34,8 @@ export function ReviewerPrompt({
       >
         <div className="mb-1 font-medium">Who is reviewing?</div>
         <p className="mb-2 text-[11px] text-muted">
-          Writes are attributed to a named reviewer. Your token maps to a reviewer on the backend (<span className="font-mono">REVIEW_TOKENS</span>); both stay in this browser only.
+          Reviews are attributed to a named reviewer. You need a review token from the curator who runs this instance; it is checked by the backend and
+          stays in this browser only. Reading and replaying runs never needs one.
         </p>
         {reason && <div className="mb-2 font-mono text-[11px] text-rose-600 dark:text-rose-400">{reason}</div>}
         <label className="mb-1 block font-mono text-[10px] text-muted uppercase">name</label>

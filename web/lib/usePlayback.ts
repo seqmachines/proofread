@@ -21,17 +21,26 @@ export interface Playback {
 
 export function usePlayback(
   total: number,
-  { baseMs = 650, autoplay = false }: { baseMs?: number; autoplay?: boolean } = {},
+  { baseMs = 650, autoplay = false, openAtEnd = false }: { baseMs?: number; autoplay?: boolean; openAtEnd?: boolean } = {},
 ): Playback {
   const [cursor, setCursor] = useState(0);
   const [playing, setPlaying] = useState(autoplay);
   const [speed, setSpeed] = useState<Speed>(1);
+  // openAtEnd: a finished run shows its final state at once instead of animating 1×;
+  // replay/step/seek switch back to normal playback.
+  const [jumping, setJumping] = useState(openAtEnd);
+  const [armed, setArmed] = useState(openAtEnd);
+  if (openAtEnd && !armed) {
+    // the run's status arrives after mount; arm once, before any user interaction
+    setArmed(true);
+    setJumping(true);
+  }
 
   useEffect(() => {
     if (!playing || total === 0 || cursor >= total) return;
-    const id = setTimeout(() => setCursor((c) => Math.min(c + 1, total)), baseMs / speed);
+    const id = setTimeout(() => setCursor((c) => (jumping ? total : Math.min(c + 1, total))), jumping ? 0 : baseMs / speed);
     return () => clearTimeout(id);
-  }, [playing, cursor, total, speed, baseMs]);
+  }, [playing, cursor, total, speed, baseMs, jumping]);
 
   const seek = useCallback((n: number) => setCursor(Math.max(0, Math.min(total, n))), [total]);
   const step = useCallback(

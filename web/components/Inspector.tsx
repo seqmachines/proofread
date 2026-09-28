@@ -6,11 +6,12 @@
 // falling back to the search snippet), checks + findings for this state, GT diff
 // (GET /runs/{id}/gt-diff; 404 → "not yet" until M4).
 import { useEffect, useState } from "react";
-import { ERROR_TYPES, type Chunk, type ErrorType, type GtDiff, type ReviewDecision, type Segment } from "@/lib/events";
+import { ERROR_TYPES, type Chunk, type ErrorType, type GtDiff, type MoleculeState, type ReviewDecision, type Segment } from "@/lib/events";
 import type { MoleculeNode, UIState } from "@/lib/reducer";
 import { ApiError, getChunk, getGtDiff } from "@/lib/api";
 import { segmentColor, segmentText } from "@/lib/colors";
-import { fmtTime, fmtVal, shortChunk } from "@/lib/format";
+import { fmtTime, shortChunk } from "@/lib/format";
+import { StrandGlyph } from "./StrandGlyph";
 import { cx } from "@/lib/cx";
 
 // ---------------------------------------------------------------- data hooks
@@ -64,6 +65,51 @@ function useGtDiff(runId: string | null, hasGt: boolean | null, given: GtDiff | 
     };
   }, [runId, hasGt, given]);
   return given ? { diff: given, note: null } : state;
+}
+
+// gt-diff entries are MoleculeState-like objects (states) or {type, from, to} (edges); strings are ids.
+function GtList({ title, items, kind }: { title: string; items: unknown[] | undefined; kind: "state" | "edge" }) {
+  const list = items ?? [];
+  const [open, setOpen] = useState(false);
+  if (list.length === 0) return null;
+  const shown = open ? list : list.slice(0, 4);
+  return (
+    <div className="mb-1.5">
+      <div className="font-mono text-[10px] text-muted">
+        {title} · {list.length}
+      </div>
+      <ul className="flex flex-col gap-0.5">
+        {shown.map((x, i) => {
+          if (typeof x === "string") return <li key={i} className="font-mono text-[10px]">{x}</li>;
+          const o = (x as Record<string, unknown>) ?? {};
+          if (kind === "state" && o.strands) {
+            const st = o as unknown as MoleculeState;
+            return (
+              <li key={i} className="flex items-center gap-1.5">
+                <StrandGlyph state={st} />
+                <span className="truncate" title={`${st.id} — ${st.label}`}>
+                  {st.label ?? st.id}
+                </span>
+              </li>
+            );
+          }
+          if (kind === "edge") {
+            return (
+              <li key={i} className="font-mono text-[10px]">
+                {String(o.from ?? o.source ?? "?")} → {String(o.to ?? o.target ?? "?")} {o.type ? <span className="text-muted">({String(o.type)})</span> : null}
+              </li>
+            );
+          }
+          return <li key={i} className="font-mono text-[10px] text-muted">{JSON.stringify(x).slice(0, 80)}</li>;
+        })}
+      </ul>
+      {list.length > 4 && (
+        <button onClick={() => setOpen((v) => !v)} className="font-mono text-[10px] text-muted underline decoration-line hover:text-foreground">
+          {open ? "show fewer" : `show all ${list.length}`}
+        </button>
+      )}
+    </div>
+  );
 }
 
 const diffHas = (list: unknown[] | undefined, id: string) =>
@@ -187,7 +233,8 @@ function ReviewSection({ targetId, ui, onReview, onModify }: { targetId: string;
       setNote("");
       setErrorType("");
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      const m = e instanceof Error ? e.message : String(e);
+      setError(/cancelled/.test(m) ? "nothing recorded — a reviewer identity is needed to save a decision" : m);
     } finally {
       setBusy(null);
     }
@@ -230,7 +277,7 @@ function ReviewSection({ targetId, ui, onReview, onModify }: { targetId: string;
         <input type="checkbox" checked={systematic} onChange={(e) => setSystematic(e.target.checked)} className="accent-accent" />
         this will recur (systematic → harness signal)
       </label>
-      {error && <div className="mt-1 font-mono text-[10px] text-rose-600 dark:text-rose-400">{error}</div>}
+      {error && <div className={cx("mt-1 font-mono text-[10px]", /nothing recorded/.test(error) ? "text-muted" : "text-rose-600 dark:text-rose-400")}>{error}</div>}
       {history.length > 0 && (
         <ul className="mt-1.5 flex flex-col gap-1 border-t border-line pt-1.5">
           {history.map((r) => (
@@ -408,7 +455,7 @@ export function Inspector({ node, ui, runId, hasGt, gtDiff, onReview, onModify, 
               <span className={c.status === "pass" ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}>
                 {c.status === "pass" ? "✓" : "✗"}
               </span>{" "}
-              <span className="font-mono">{c.check}</span> <span className="text-muted">— {c.message}</span>
+              <span className="font-mono" title={c.check}>{c.check.replace(/_/g, " ")}</span> <span className="text-muted">— {c.message}</span>
             </div>
           ))}
           {findings.map((f) => (
@@ -429,23 +476,19 @@ export function Inspector({ node, ui, runId, hasGt, gtDiff, onReview, onModify, 
           {hasGt === true && gt.note && <div className="text-muted">{gt.note}</div>}
           {hasGt === true && !gt.diff && !gt.note && <div className="text-muted">loading…</div>}
           {gt.diff && (
-            <div>
+            <div className="text-[11px]">
               <div className="mb-1 flex flex-wrap gap-1">
                 <Tag tone={diffHas(gt.diff.extra_states, state.id) ? "rose" : "muted"}>
-                  this state: {diffHas(gt.diff.extra_states, state.id) ? "extra (not in GT)" : "matches GT"}
+                  this state: {diffHas(gt.diff.extra_states, state.id) ? "not in the ground truth" : "has a ground-truth counterpart"}
                 </Tag>
               </div>
-              <table className="w-full font-mono text-[10px] tabular-nums">
-                <tbody>
-                  {(["missing_states", "extra_states", "missing_edges", "extra_edges"] as const).map((k) => (
-                    <tr key={k} className="align-top">
-                      <td className="pr-2 text-muted">{k}</td>
-                      <td className="text-right">{gt.diff![k].length}</td>
-                      <td className="pl-2 break-words text-muted">{gt.diff![k].slice(0, 6).map(fmtVal).join(", ")}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <p className="mb-1 text-[10px] text-muted">
+                The diff matches by id, so ids that differ between the run and the ground truth show as missing + extra even when the molecules agree.
+              </p>
+              <GtList title="missing from this run" items={gt.diff.missing_states} kind="state" />
+              <GtList title="not in the ground truth" items={gt.diff.extra_states} kind="state" />
+              <GtList title="edges missing from this run" items={gt.diff.missing_edges} kind="edge" />
+              <GtList title="edges not in the ground truth" items={gt.diff.extra_edges} kind="edge" />
             </div>
           )}
           {ui.gtScore && (

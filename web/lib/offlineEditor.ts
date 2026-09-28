@@ -27,12 +27,13 @@ const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 // The state the sentence names (any committed node id: "S2", "cdna_amp",
 // "S_6f364bc90a39"), else the last carried-forward state.
-function pickTarget(ui: UIState, text: string): MoleculeState | null {
+function pickTarget(ui: UIState, text: string, defaultId?: string | null): MoleculeState | null {
   const lower = text.toLowerCase();
   const mentioned = ui.nodes
-    .filter((n) => !n.data.ghost && new RegExp(`(^|[^a-z0-9_])${escapeRe(n.id.toLowerCase())}(?![a-z0-9_])`).test(lower))
+    .filter((n) => !n.data.ghost && new RegExp(`(^|[^a-z0-9_.])${escapeRe(n.id.toLowerCase())}(?![a-z0-9_.])`).test(lower))
     .sort((a, b) => b.id.length - a.id.length)[0];
-  const node = mentioned ?? [...ui.nodes].reverse().find((n) => !n.data.ghost && !n.data.discarded);
+  const chosen = defaultId ? ui.nodes.find((n) => n.id === defaultId && !n.data.ghost) : undefined;
+  const node = mentioned ?? chosen ?? [...ui.nodes].reverse().find((n) => !n.data.ghost && !n.data.discarded);
   return node?.data.state ?? null;
 }
 
@@ -49,12 +50,13 @@ function parse(text: string) {
 }
 
 /** human_message + patch_proposed (or an error event when nothing can be patched). */
-export function offlinePropose(ui: UIState, text: string, seq: number): RunEvent[] {
+/** `defaultTarget`: the state the reviewer pressed "modify" on, used when the sentence names none. */
+export function offlinePropose(ui: UIState, text: string, seq: number, defaultTarget?: string | null): RunEvent[] {
   const run_id = ui.runId ?? "fixture";
   const events: RunEvent[] = [
     { run_id, seq, ts: now(), t: "human_message", text, mode: ui.status === "running" ? "during" : "after" },
   ];
-  const target = pickTarget(ui, text);
+  const target = pickTarget(ui, text, defaultTarget);
   if (!target) {
     return [...events, { run_id, seq: seq + 1, ts: now(), t: "error", message: "offline editor: no committed state to patch yet" }];
   }

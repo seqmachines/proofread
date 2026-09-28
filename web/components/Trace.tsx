@@ -222,7 +222,7 @@ function EventRow({ e, protocolId }: { e: RunEvent; protocolId: string | null })
       const ok = e.status === "pass";
       return (
         <Row e={e} label="check" tone={ok ? "ok" : "fail"}>
-          <span className={TONE[ok ? "ok" : "fail"]}>{ok ? "✓" : "✗"}</span> <span className="font-mono">{e.check}</span>{" "}
+          <span className={TONE[ok ? "ok" : "fail"]}>{ok ? "✓" : "✗"}</span> <span className="font-mono" title={e.check}>{e.check.replace(/_/g, " ")}</span>{" "}
           {e.state_id && <Chip tone={ok ? "muted" : "rose"}>{e.state_id}</Chip>} <span className="text-muted">— {e.message}</span>{" "}
           {e.evidence && <Chips ids={e.evidence} protocolId={protocolId} />}
         </Row>
@@ -429,7 +429,7 @@ function StepCard({
   return (
     <section className="border-b border-line px-3 py-2" data-kind="step_started" data-step={step.step}>
       <div className="flex items-baseline gap-2">
-        <span className="font-mono text-[10px] text-muted">step {step.step}</span>
+        <span className="font-mono text-[10px] text-muted">{step.step === 0 ? "record" : `step ${step.step}`}</span>
         <span className="ml-auto font-mono text-[10px] text-muted tabular-nums">{fmtTime(step.ts)}</span>
       </div>
       <p className="text-[12px] leading-4">{step.goal}</p>
