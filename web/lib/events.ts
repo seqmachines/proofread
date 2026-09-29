@@ -258,7 +258,8 @@ export interface ProtocolSource {
 export interface Protocol {
   id: string;
   name: string;
-  family: string;
+  family: string; // §2.6 today; being renamed to `modality` (derived from ground-truth final outputs)
+  modality?: string; // sent once the backend ships the rename; the web prefers it over `family`
   role: ProtocolRole;
   has_gt: boolean;
   sources?: ProtocolSource[];
