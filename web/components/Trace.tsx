@@ -395,6 +395,29 @@ function phaseOf(t: RunEvent["t"]): string | null {
   }
 }
 
+
+function CheckGroupRow({ events, protocolId }: { events: Extract<RunEvent, { t: "verifier_check" }>[]; protocolId: string | null }) {
+  const e = events[0];
+  const ok = e.status === "pass";
+  const ids = Array.from(new Set(events.map((x) => x.state_id).filter((x): x is string => Boolean(x))));
+  const evidence = Array.from(new Set(events.flatMap((x) => x.evidence ?? [])));
+  return (
+    <Row e={e} label="check" tone={ok ? "ok" : "fail"}>
+      <span className={TONE[ok ? "ok" : "fail"]}>{ok ? "✓" : "✗"}</span> <span className="font-mono" title={e.check}>{e.check.replace(/_/g, " ")}</span>{" "}
+      <span className="rounded-sm border border-line px-1 font-mono text-[10px] text-muted tabular-nums" title={`${events.length} identical checks, seq ${events[0].seq}–${events[events.length - 1].seq}`}>
+        ×{events.length}
+      </span>{" "}
+      <span className="text-muted">— {e.message}</span>{" "}
+      {ids.map((id) => (
+        <Chip key={id} tone={ok ? "muted" : "rose"}>
+          {id}
+        </Chip>
+      ))}
+      {evidence.length > 0 && <Chips ids={evidence} protocolId={protocolId} />}
+    </Row>
+  );
+}
+
 function StepCard({
   step,
   protocolId,
@@ -407,8 +430,10 @@ function StepCard({
   cardAt: Map<string, number>; // harness version → seq of the event that carries its card
 }) {
   const rows: React.ReactNode[] = [];
+  const skip = new Set<number>(); // seqs folded into a CheckGroupRow
   let phase: string | null = null;
   for (const e of step.events) {
+    if (skip.has(e.seq)) continue;
     const p = phaseOf(e.t);
     if (p && p !== phase) {
       rows.push(
@@ -423,6 +448,25 @@ function StepCard({
       const v = harness.versions.find((x) => x.id === version);
       if (v && cardAt.get(version) === e.seq) rows.push(<HarnessCard key={e.seq} v={v} e={e} />);
       continue; // the other two events of the same version fold into that card
+    }
+    // A verifier often repeats one finding across many states; one row with ×N and the
+    // state chips reads better than a wall of identical lines.
+    if (e.t === "verifier_check") {
+      const same = (x: RunEvent): x is Extract<RunEvent, { t: "verifier_check" }> =>
+        x.t === "verifier_check" && x.check === e.check && x.status === e.status && x.message === e.message;
+      const idx = step.events.indexOf(e);
+      const group: Extract<RunEvent, { t: "verifier_check" }>[] = [e];
+      for (let j = idx + 1; j < step.events.length; j++) {
+        const x = step.events[j];
+        if (!same(x)) break;
+        group.push(x);
+      }
+      if (group.length > 1) {
+        skip.add(e.seq);
+        for (const g of group) skip.add(g.seq);
+        rows.push(<CheckGroupRow key={e.seq} events={group} protocolId={protocolId} />);
+        continue;
+      }
     }
     rows.push(<EventRow key={e.seq} e={e} protocolId={protocolId} />);
   }

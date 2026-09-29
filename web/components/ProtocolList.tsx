@@ -9,6 +9,7 @@ import type { Protocol, ProtocolSource } from "@/lib/events";
 import { startRun } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { cx } from "@/lib/cx";
+import { modalityOf } from "@/lib/modality";
 
 const btn =
   "h-6 rounded border border-line bg-panel px-2 font-mono text-[11px] leading-5 text-foreground hover:border-accent disabled:opacity-40 disabled:hover:border-line";
@@ -59,12 +60,6 @@ function SourceButton({ s, showHarness }: { s: ProtocolSource; showHarness: bool
         {s.model && s.model !== "—" ? ` · ${s.model}` : ""}
         {showHarness ? <span className="text-muted"> · {shortVersion(s.harness_version)}</span> : null}
       </span>
-      {head && (
-        <span className="text-muted tabular-nums" title={`${head.label} — saved benchmark metric, not structure_f1`}>
-          {head.value.toFixed(2)}
-        </span>
-      )}
-      <span className="text-muted">→</span>
     </Link>
   );
 }
@@ -114,10 +109,12 @@ export function ProtocolList({
       {protocols && (
         <table className="w-full border-collapse text-[12px]" data-protocols>
           <thead>
-            <tr className="border-b border-line font-mono text-[10px] tracking-wide text-muted uppercase">
-              <th className="py-1 pr-3 text-left font-normal">protocol</th>
-              <th className="py-1 pr-3 text-left font-normal">modality</th>
-              <th className="py-1 text-left font-normal">result</th>
+            <tr className="border-b border-line font-mono text-[12px] tracking-wide text-muted uppercase">
+              <th className="w-[36%] py-1.5 pr-3 text-left font-normal">protocol</th>
+              <th className="w-[31%] py-1.5 pr-3 text-left font-normal">modality</th>
+              <th className="py-1.5 text-left font-normal" title="executor · model of the reconstruction; opens the run">
+                result
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -129,18 +126,18 @@ export function ProtocolList({
               return (
                 <tr
                   key={p.id}
-                  className="border-b border-line/60 align-top"
+                  className="border-b border-line/60 align-middle hover:bg-panel"
                   data-protocol={p.id}
                 >
-                  <td className="py-1.5 pr-3">
-                    <div className="font-medium" title={p.id}>
+                  <td className="py-2 pr-3">
+                    <div className="text-[13px] font-medium" title={p.id}>
                       {p.name}
                     </div>
                   </td>
-                  <td className="py-1.5 pr-3 font-mono text-[11px] text-muted" data-modality={p.modality ?? p.family}>
-                    {p.modality ?? p.family}
+                  <td className="py-2 pr-3 font-mono text-[12px] text-muted" data-modality={modalityOf(p)}>
+                    {modalityOf(p)}
                   </td>
-                  <td className="py-1.5">
+                  <td className="py-2">
                     <div className="flex flex-wrap gap-1.5">
                       {sources.map((s) => (
                         <SourceButton key={s.run_id} s={s} showHarness={harnesses.size > 1} />

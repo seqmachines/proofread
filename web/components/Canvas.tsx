@@ -1,7 +1,7 @@
 "use client";
 // components/Canvas.tsx — the hero. Nodes and edges come straight from fold(events);
 // positions are already fixed, so no layout happens here. Fits the view as nodes appear.
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Background,
   BackgroundVariant,
@@ -9,7 +9,9 @@ import {
   MarkerType,
   ReactFlow,
   ReactFlowProvider,
+  getNodesBounds,
   useReactFlow,
+  useStore,
   type DefaultEdgeOptions,
   type FitViewOptions,
 } from "@xyflow/react";
@@ -33,16 +35,32 @@ const fitViewOptions: FitViewOptions = { padding: 0.15, minZoom: 0.7, maxZoom: 1
 // Refit when a node appears, and again (debounced) after the last event of a burst,
 // so an 8× replay always ends with the whole workflow in view. The store's fitView()
 // queues itself until new nodes are measured.
+const TOP_GUTTER = 28;
+
 function FitOnGrowth({ count, tick }: { count: number; tick: number }) {
-  const { fitView } = useReactFlow();
+  const { fitView, getViewport, setViewport, getNodes } = useReactFlow();
+  const height = useStore((s) => s.height);
+  // Fit the workflow; when it is taller than the viewport at the readable minimum zoom,
+  // fitView centres it and crops both ends — start at the first step instead.
+  const fit = useCallback(
+    async (duration: number) => {
+      await fitView({ ...fitViewOptions, duration });
+      const vp = getViewport();
+      const b = getNodesBounds(getNodes());
+      if (b.height * vp.zoom > height - TOP_GUTTER) {
+        await setViewport({ x: vp.x, y: TOP_GUTTER - b.y * vp.zoom, zoom: vp.zoom }, { duration: Math.min(duration, 150) });
+      }
+    },
+    [fitView, getViewport, setViewport, getNodes, height],
+  );
   useEffect(() => {
-    if (count > 0) void fitView({ ...fitViewOptions, duration: 350 });
-  }, [count, fitView]);
+    if (count > 0) void fit(350);
+  }, [count, fit]);
   useEffect(() => {
     if (count === 0) return;
-    const settle = setTimeout(() => void fitView({ ...fitViewOptions, duration: 250 }), 400);
+    const settle = setTimeout(() => void fit(250), 400);
     return () => clearTimeout(settle);
-  }, [count, tick, fitView]);
+  }, [count, tick, fit]);
   return null;
 }
 
