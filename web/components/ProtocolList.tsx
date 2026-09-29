@@ -116,6 +116,7 @@ export function ProtocolList({
           <thead>
             <tr className="border-b border-line font-mono text-[10px] tracking-wide text-muted uppercase">
               <th className="py-1 pr-3 text-left font-normal">protocol</th>
+              <th className="py-1 pr-3 text-left font-normal">family</th>
               <th className="py-1 text-left font-normal">result</th>
             </tr>
           </thead>
@@ -135,9 +136,10 @@ export function ProtocolList({
                     <div className="font-medium">{p.name}</div>
                     <div className="font-mono text-[10px] text-muted">
                       {p.id}
-                      {/* family comes from the import metadata; the benchmark importer has none */}
-                      {p.family && p.family !== "unclassified" ? ` · ${p.family}` : ""}
                     </div>
+                  </td>
+                  <td className="py-1.5 pr-3 font-mono text-[11px] text-muted" data-family={p.family}>
+                    {p.family}
                   </td>
                   <td className="py-1.5">
                     <div className="flex flex-wrap gap-1.5">
@@ -173,7 +175,7 @@ export function ProtocolList({
             {protocols.length === 0 && (
               <tr>
                 <td
-                  colSpan={2}
+                  colSpan={3}
                   className="py-2 font-mono text-[11px] text-muted"
                 >
                   {
