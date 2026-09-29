@@ -3,7 +3,7 @@
 // and list existing ones. Shown when the stored token can list invites.
 import { useCallback, useEffect, useState } from "react";
 import type { Invite, Protocol } from "@/lib/events";
-import { ApiError, createInvite, listInvites } from "@/lib/api";
+import { ApiError, createInvite, listInvites, revokeInvite } from "@/lib/api";
 import { withBasePath } from "@/lib/basePath";
 import { fmtTime } from "@/lib/format";
 import { cx } from "@/lib/cx";
@@ -21,6 +21,7 @@ export function InvitesPanel({ protocols, tokenPresent }: { protocols: Protocol[
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<{ invite: Invite; link: string } | null>(null);
+  const [revoking, setRevoking] = useState<string | null>(null);
 
   const load = useCallback(() => {
     let cancelled = false;
@@ -62,6 +63,22 @@ export function InvitesPanel({ protocols, tokenPresent }: { protocols: Protocol[
     }
   };
 
+  const revoke = async (i: Invite) => {
+    if (revoking) return;
+    setRevoking(i.invite_id);
+    setError(null);
+    try {
+      await revokeInvite(i.invite_id);
+      if (created?.invite.invite_id === i.invite_id) setCreated(null);
+    } catch (e) {
+      // 404: already gone — the reload below reflects that.
+      if (!(e instanceof ApiError && e.status === 404)) setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRevoking(null);
+      load();
+    }
+  };
+
   return (
     <section className="rounded border border-line bg-panel" data-invites-panel>
       <header className="flex h-8 items-center gap-2 border-b border-line px-3">
@@ -99,7 +116,8 @@ export function InvitesPanel({ protocols, tokenPresent }: { protocols: Protocol[
                 <th className="py-1 pr-3 text-left font-normal">name</th>
                 <th className="py-1 pr-3 text-left font-normal">protocol</th>
                 <th className="py-1 pr-3 text-left font-normal">role</th>
-                <th className="py-1 text-right font-normal">created</th>
+                <th className="py-1 pr-3 text-right font-normal">created</th>
+                <th className="py-1 text-right font-normal"></th>
               </tr>
             </thead>
             <tbody>
@@ -108,7 +126,18 @@ export function InvitesPanel({ protocols, tokenPresent }: { protocols: Protocol[
                   <td className="py-1 pr-3">{i.name}</td>
                   <td className="py-1 pr-3 font-mono text-muted">{i.protocol_id}</td>
                   <td className="py-1 pr-3 font-mono text-muted">{i.role}</td>
-                  <td className="py-1 text-right font-mono text-muted tabular-nums">{fmtTime(i.created_at)}</td>
+                  <td className="py-1 pr-3 text-right font-mono text-muted tabular-nums">{fmtTime(i.created_at)}</td>
+                  <td className="py-1 text-right">
+                    <button
+                      className="font-mono text-[10px] text-muted underline decoration-line hover:text-rose-600 disabled:opacity-40 dark:hover:text-rose-400"
+                      onClick={() => void revoke(i)}
+                      disabled={revoking !== null}
+                      title="DELETE /invites/{id} — the token stops working; reviews already recorded stay attributed"
+                      data-invite-revoke={i.invite_id}
+                    >
+                      {revoking === i.invite_id ? "revoking…" : "revoke"}
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>

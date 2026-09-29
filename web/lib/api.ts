@@ -170,6 +170,27 @@ export const listInvites = () => {
   return api<Invite[]>("/invites", { headers });
 };
 export const createInvite = (protocol_id: string, name: string) => api<Invite>("/invites", json({ protocol_id, name }));
+/** DELETE /invites/{id} (§2.6): 204, the token stops authenticating; reviews already attributed stay. */
+export const revokeInvite = async (invite_id: string): Promise<void> => {
+  const t = getReviewer()?.token;
+  const headers: Record<string, string> = t ? { "X-Review-Token": t } : {};
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}/invites/${encodeURIComponent(invite_id)}`, { method: "DELETE", headers, cache: "no-store" });
+  } catch (e) {
+    throw new ApiError(0, `backend unreachable at ${API_URL} (${e instanceof Error ? e.message : String(e)})`);
+  }
+  if (!res.ok) {
+    let detail = res.statusText;
+    try {
+      const body = (await res.json()) as { detail?: unknown };
+      if (body && typeof body.detail === "string") detail = body.detail;
+    } catch {
+      /* no body */
+    }
+    throw new ApiError(res.status, `${res.status} /invites/${invite_id}: ${detail}`);
+  }
+};
 export const getHarness = () => api<HarnessVersion>("/harness");
 export const getHarnessVersions = () => api<HarnessVersion[]>("/harness/versions");
 export const getHarnessVersion = (v: string) => api<HarnessVersion>(`/harness/versions/${encodeURIComponent(v)}`);

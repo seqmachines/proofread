@@ -13,12 +13,6 @@ import { cx } from "@/lib/cx";
 const btn =
   "h-6 rounded border border-line bg-panel px-2 font-mono text-[11px] leading-5 text-foreground hover:border-accent disabled:opacity-40 disabled:hover:border-line";
 
-const ROLE: Record<Protocol["role"], string> = {
-  dev: "text-accent border-accent/50",
-  regression: "text-muted border-line",
-  transfer: "text-amber-600 border-amber-500/50 dark:text-amber-400",
-};
-
 const SOURCE: Record<string, string> = {
   live: "border-emerald-500/50 text-emerald-600 dark:text-emerald-400",
   harbor: "border-accent/50 text-accent",
@@ -47,33 +41,26 @@ function benchmarkHeadline(
     : null;
 }
 
-function SourceButton({ s }: { s: ProtocolSource }) {
+function SourceButton({ s, showHarness }: { s: ProtocolSource; showHarness: boolean }) {
   const head = benchmarkHeadline(s);
+  const imported = s.source === "benchmark" || s.source === "fixture";
   return (
     <Link
       href={`/runs/${encodeURIComponent(s.run_id)}`}
       className={cx(btn, "inline-flex items-center gap-1.5 no-underline")}
-      title={`open /runs/${s.run_id} · harness ${s.harness_version}${head ? ` · ${head.label} ${head.value.toFixed(2)} (benchmark record)` : ""}`}
+      title={`open /runs/${s.run_id} · ${s.source} · harness ${s.harness_version}${head ? ` · ${head.label} ${head.value.toFixed(2)} (benchmark record)` : ""}`}
       data-source-run={s.run_id}
     >
-      <span
-        className={cx(
-          "rounded-sm border px-1 text-[9px] leading-[13px]",
-          SOURCE[s.source] ?? SOURCE.benchmark,
-        )}
-      >
-        {s.source}
-      </span>
+      {!imported && (
+        <span className={cx("rounded-sm border px-1 text-[9px] leading-[13px]", SOURCE[s.source] ?? SOURCE.benchmark)}>{s.source}</span>
+      )}
       <span>
         {s.executor}
-        {s.model && s.model !== "—" ? ` · ${s.model}` : ""} ·{" "}
-        {shortVersion(s.harness_version)}
+        {s.model && s.model !== "—" ? ` · ${s.model}` : ""}
+        {showHarness ? <span className="text-muted"> · {shortVersion(s.harness_version)}</span> : null}
       </span>
       {head && (
-        <span
-          className="text-muted tabular-nums"
-          title={`${head.label} — saved benchmark metric, not structure_f1`}
-        >
+        <span className="text-muted tabular-nums" title={`${head.label} — saved benchmark metric, not structure_f1`}>
           {head.value.toFixed(2)}
         </span>
       )}
@@ -129,17 +116,15 @@ export function ProtocolList({
           <thead>
             <tr className="border-b border-line font-mono text-[10px] tracking-wide text-muted uppercase">
               <th className="py-1 pr-3 text-left font-normal">protocol</th>
-              <th className="py-1 pr-3 text-left font-normal">family</th>
-              <th className="py-1 pr-3 text-left font-normal">role</th>
-              <th className="py-1 pr-3 text-left font-normal">gt</th>
-              <th className="py-1 text-left font-normal">
-                systems with a result → open the run
-              </th>
+              <th className="py-1 text-left font-normal">result</th>
             </tr>
           </thead>
           <tbody>
             {protocols.map((p) => {
               const sources = (p.sources ?? []).filter(isSource);
+              // executor · model is the label; the harness version only matters when a
+              // protocol has results from more than one (it always stays in the tooltip).
+              const harnesses = new Set(sources.map((s) => s.harness_version));
               return (
                 <tr
                   key={p.id}
@@ -150,37 +135,14 @@ export function ProtocolList({
                     <div className="font-medium">{p.name}</div>
                     <div className="font-mono text-[10px] text-muted">
                       {p.id}
+                      {/* family comes from the import metadata; the benchmark importer has none */}
+                      {p.family && p.family !== "unclassified" ? ` · ${p.family}` : ""}
                     </div>
-                  </td>
-                  <td className="py-1.5 pr-3 font-mono text-[11px] text-muted">
-                    {p.family}
-                  </td>
-                  <td className="py-1.5 pr-3">
-                    <span
-                      className={cx(
-                        "rounded-sm border px-1 font-mono text-[10px] leading-[14px]",
-                        ROLE[p.role] ?? ROLE.regression,
-                      )}
-                    >
-                      {p.role}
-                    </span>
-                  </td>
-                  <td className="py-1.5 pr-3 font-mono text-[11px]">
-                    {p.has_gt ? (
-                      <span
-                        className="rounded-sm border border-emerald-500/50 px-1 text-[10px] leading-[14px] text-emerald-600 dark:text-emerald-400"
-                        title="ground truth available"
-                      >
-                        GT
-                      </span>
-                    ) : (
-                      <span className="text-muted">—</span>
-                    )}
                   </td>
                   <td className="py-1.5">
                     <div className="flex flex-wrap gap-1.5">
                       {sources.map((s) => (
-                        <SourceButton key={s.run_id} s={s} />
+                        <SourceButton key={s.run_id} s={s} showHarness={harnesses.size > 1} />
                       ))}
                       {sources.length === 0 && (
                         <span className="font-mono text-[11px] text-muted">
@@ -211,7 +173,7 @@ export function ProtocolList({
             {protocols.length === 0 && (
               <tr>
                 <td
-                  colSpan={5}
+                  colSpan={2}
                   className="py-2 font-mono text-[11px] text-muted"
                 >
                   {

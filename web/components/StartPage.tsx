@@ -71,24 +71,13 @@ export function StartPage() {
   return (
     <main className="flex flex-1 flex-col items-center px-6 py-8">
       <div className="flex w-full max-w-[1000px] flex-col gap-3">
-        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 font-mono text-[11px] text-muted">
-          <span className="text-[13px] font-semibold text-foreground">proofread</span>
-          <span className="text-[12px] text-foreground">Review agent-reconstructed sequencing-library workflows.</span>
-          <span className="ml-auto flex shrink-0 gap-3 whitespace-nowrap">
-            <Link href="/queue" className="underline decoration-line hover:decoration-accent">
-              queue
-            </Link>
-            <Link href="/memory" className="underline decoration-line hover:decoration-accent">
-              memory
-            </Link>
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 font-mono text-[11px] text-muted">
+          <h1 className="text-[22px] font-semibold tracking-tight text-foreground">proofread</h1>
+          <span className="text-[13px] text-muted">Review agent-reconstructed sequencing-library workflows.</span>
+          <span className="ml-auto flex shrink-0 items-baseline gap-3 whitespace-nowrap">
             <Link href="/benchmark" className="underline decoration-line hover:decoration-accent">
               benchmark
             </Link>
-            {!author && (
-              <Link href="/harness" className="underline decoration-line hover:decoration-accent">
-                harness
-              </Link>
-            )}
             {reviewer && (
               <span className="text-foreground" data-reviewer={reviewer.name}>
                 {reviewer.name}
@@ -110,11 +99,6 @@ export function StartPage() {
             )}
           </div>
         )}
-
-        <p className="text-[12px] text-muted">
-          Pick a protocol and open one of its reconstructions. On the run page, click a molecule to check its strands, provenance and failed checks,
-          then accept, modify, reject or leave it unresolved. Decisions need a review token from the curator; reading never does.
-        </p>
 
         <ProtocolList protocols={shown} liveRuns={liveRuns} activeHarness={harness?._id ?? null} error={note} />
 

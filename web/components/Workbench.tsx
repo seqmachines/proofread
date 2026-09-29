@@ -387,15 +387,8 @@ export function Workbench({ runId }: { runId: string }) {
           {conn.text}
           {live.detail && live.status === "reconnecting" ? ` ${live.detail}` : ""}
         </span>
-        <Link href="/queue" className="ml-3 font-mono text-[11px] text-muted underline decoration-line hover:text-foreground">
-          queue
-        </Link>
-        {!author && (
-          <Link href="/harness" className="font-mono text-[11px] text-muted underline decoration-line hover:text-foreground">
-            harness
-          </Link>
-        )}
-        <Link href="/benchmark" className="font-mono text-[11px] text-muted underline decoration-line hover:text-foreground">
+        {/* queue, memory and harness stay reachable by URL; only benchmark is linked (2026-09-28 UI pass) */}
+        <Link href="/benchmark" className="ml-3 font-mono text-[11px] text-muted underline decoration-line hover:text-foreground">
           benchmark
         </Link>
         {identity.reviewer && (
