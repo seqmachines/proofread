@@ -41,6 +41,7 @@ function StateRows({ state, other, tone }: { state: MoleculeState; other: Molecu
 
 function PatchCard({
   patch,
+  targetLabel,
   recur,
   onRecur,
   errorType,
@@ -59,6 +60,7 @@ function PatchCard({
   onCancel: () => void;
   busy: boolean;
   dismissed: boolean;
+  targetLabel?: string;
 }) {
   const applied = patch.status === "applied";
   return (
@@ -73,7 +75,9 @@ function PatchCard({
         <span className="text-accent">{patch.patch_id}</span>
         <span>{patch.op}</span>
         <span className="text-muted">on</span>
-        <span>{patch.target}</span>
+        <span className={targetLabel ? "font-sans text-[11px] font-medium" : ""} title={patch.target}>
+          {targetLabel ?? patch.target}
+        </span>
         <span className="ml-auto text-muted">
           {applied ? `applied · rev ${patch.applied_revision}` : dismissed ? "dismissed" : "proposed"}
         </span>
@@ -161,7 +165,7 @@ export function Chat({ ui, offline, text, onText, focusKey = 0, onSend, onApply,
   const [collapsed, setCollapsed] = useState(false);
 
   const enabled = ui.status === "done" || ui.status === "failed" || ui.status === "reviewing";
-  const example = ui.nodes.find((n) => !n.data.ghost)?.id ?? "S2";
+  const example = ui.nodes.find((n) => !n.data.ghost)?.data.state.label ?? "the first state";
   const patches = new Map(ui.patches.map((p) => [p.patch_id, p]));
   const items = ui.chat;
 
@@ -199,7 +203,7 @@ export function Chat({ ui, offline, text, onText, focusKey = 0, onSend, onApply,
   return (
     <div className="border-t border-line">
       {items.length > 0 && !collapsed && (
-        <div className="h-[25vh] overflow-y-auto border-b border-line bg-panel px-3 py-2" data-chat-log>
+        <div className="h-[32vh] overflow-y-auto border-b border-line bg-panel px-3 py-2" data-chat-log>
           <ul className="flex flex-col gap-1.5">
             {items.map((it) => {
               if (it.kind === "human") return <HumanRow key={it.seq} item={it} />;
@@ -208,6 +212,7 @@ export function Chat({ ui, offline, text, onText, focusKey = 0, onSend, onApply,
                 <PatchCard
                   key={it.seq}
                   patch={p}
+                  targetLabel={ui.nodes.find((n) => n.id === p.target)?.data.state.label}
                   recur={Boolean(recur[p.patch_id])}
                   onRecur={(v) => setRecur((r) => ({ ...r, [p.patch_id]: v }))}
                   errorType={typeFor(p)}
@@ -235,11 +240,11 @@ export function Chat({ ui, offline, text, onText, focusKey = 0, onSend, onApply,
           </button>
         </div>
       )}
-      <div className={cx("flex min-h-[3.25rem] items-center gap-2 px-3 py-1.5", !showInput && "hidden")}>
+      <div className={cx("flex min-h-[4.25rem] items-center gap-2 px-3 py-2", !showInput && "hidden")}>
         <span className="font-mono text-[10px] tracking-wide text-muted uppercase">chat</span>
         <textarea
           ref={inputRef}
-          rows={2}
+          rows={3}
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
@@ -252,11 +257,11 @@ export function Chat({ ui, offline, text, onText, focusKey = 0, onSend, onApply,
           placeholder={
             enabled
               ? offline
-                ? `offline editor — e.g. “add a 5′ handle to ${example}” or “remove the primer from ${example}”`
-                : `e.g. “the RT primer has a 5′ handle, fix ${example}”`
+                ? `no model on this backend — the local editor handles “add a 5′ handle to ${example}” or “remove the primer from the selected state” (Enter to send)`
+                : `e.g. “the RT primer has a 5′ handle, fix ${example}” (Enter to send)`
               : `chat opens when the run finishes (${ui.status})`
           }
-          className="min-w-0 flex-1 resize-none rounded border border-line bg-panel px-2 py-1 text-[12px] leading-4 text-foreground outline-none placeholder:text-muted/70 focus:border-accent disabled:text-muted"
+          className="min-w-0 flex-1 resize-none rounded border border-line bg-panel px-2.5 py-1.5 text-[13px] leading-5 text-foreground outline-none placeholder:text-muted/70 focus:border-accent disabled:text-muted"
           aria-label="Chat message"
         />
         {note && (
@@ -274,9 +279,6 @@ export function Chat({ ui, offline, text, onText, focusKey = 0, onSend, onApply,
         )}
         <button className={btn} onClick={() => void send()} disabled={!enabled || !text.trim() || busy === "send"}>
           {busy === "send" ? "sending…" : "send"}
-        </button>
-        <button className={btn} disabled title="pause / resume is a stretch goal">
-          pause
         </button>
       </div>
     </div>

@@ -44,11 +44,13 @@ function FitOnGrowth({ count, tick }: { count: number; tick: number }) {
   // fitView centres it and crops both ends — start at the first step instead.
   const fit = useCallback(
     async (duration: number) => {
-      await fitView({ ...fitViewOptions, duration });
+      // Instant fit, then instant top-align: an animated fitView resolves before it lands,
+      // which left the first row above the viewport.
+      await fitView({ ...fitViewOptions, duration: 0 });
       const vp = getViewport();
       const b = getNodesBounds(getNodes());
       if (b.height * vp.zoom > height - TOP_GUTTER) {
-        await setViewport({ x: vp.x, y: TOP_GUTTER - b.y * vp.zoom, zoom: vp.zoom }, { duration: Math.min(duration, 150) });
+        await setViewport({ x: vp.x, y: TOP_GUTTER - b.y * vp.zoom, zoom: vp.zoom }, { duration: duration > 0 ? Math.min(duration, 150) : 0 });
       }
     },
     [fitView, getViewport, setViewport, getNodes, height],

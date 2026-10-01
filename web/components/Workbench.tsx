@@ -7,12 +7,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { useRouter } from "next/navigation";
 import type { AppConfig, ErrorType, GtDiff, Protocol, ReviewDecision, ReviewInput, Reviewer, RunEvent } from "@/lib/events";
 import { fold, type Patch } from "@/lib/reducer";
 import { fixtureName, useFixtureEvents } from "@/lib/fixture";
 import { useRunEvents } from "@/lib/useRunEvents";
-import { ApiError, type ConnectionStatus, getConfig, getGtDiff, getHarness, getProtocols, isAuthError, postReview, sendMessage, startRun } from "@/lib/api";
+import { ApiError, type ConnectionStatus, getConfig, getGtDiff, getProtocols, isAuthError, postReview, sendMessage } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { type ReviewerIdentity, getReviewer, isAuthor, setReviewer, useReviewer } from "@/lib/reviewer";
 import { offlineApply, offlinePropose, offlineReview } from "@/lib/offlineEditor";
@@ -22,6 +21,7 @@ import { Playback } from "./Playback";
 import { Trace } from "./Trace";
 import { StatusBar } from "./StatusBar";
 import { Inspector } from "./Inspector";
+import { ScoreBox } from "./ScoreBox";
 import { Chat } from "./Chat";
 import { ReviewerPrompt } from "./ReviewerPrompt";
 
@@ -29,8 +29,6 @@ import { ReviewerPrompt } from "./ReviewerPrompt";
 // hydrate "light" against "dark" and warn. Nothing on the canvas is server-known anyway.
 const Canvas = dynamic(() => import("./Canvas").then((m) => m.Canvas), { ssr: false });
 
-const btn =
-  "h-6 rounded border border-line bg-panel px-2 font-mono text-[11px] leading-5 text-foreground hover:border-accent disabled:opacity-40 disabled:hover:border-line";
 
 const diffIds = (list: unknown[] | undefined) =>
   (list ?? []).flatMap((x) => (typeof x === "string" ? [x] : typeof x === "object" && x !== null && typeof (x as { id?: unknown }).id === "string" ? [(x as { id: string }).id] : []));
@@ -87,24 +85,6 @@ function useConfig(): AppConfig | null {
     };
   }, []);
   return cfg;
-}
-
-function useActiveHarness(): string | null {
-  const [id, setId] = useState<string | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    getHarness()
-      .then((h) => {
-        if (!cancelled) setId(h._id);
-      })
-      .catch(() => {
-        /* label falls back to "active" */
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-  return id;
 }
 
 /** Asks for name + token on the first write (§6), keeps them in localStorage, and re-asks
@@ -169,7 +149,6 @@ function useIdentity() {
 }
 
 export function Workbench({ runId }: { runId: string }) {
-  const router = useRouter();
   const identity = useIdentity();
   const fixtureKey = fixtureName(runId); // "" | "<name>" | null (live)
   const isFixture = fixtureKey !== null;
@@ -193,10 +172,12 @@ export function Workbench({ runId }: { runId: string }) {
   const selected = selectedId ? ui.nodes.find((n) => n.id === selectedId) : undefined;
 
   const onSend = async (text: string): Promise<string | void> => {
-    if (isFixture) {
-      setExtra((x) => [...x, ...offlinePropose(full, text, full.lastSeq + 1, pendingModify?.target)]);
+    if (isFixture || noEditor) {
+      // No model behind /messages (fixture, or EXECUTOR=none): the local editor drafts the
+      // patch from the sentence; applying it still records the modify review on the server.
+      setExtra((x) => [...x, ...offlinePropose(full, text, full.lastSeq + 1, pendingModify?.target ?? selectedId)]);
       pb.play();
-      return;
+      return noEditor ? "no model on this backend — the local editor drafted this patch; apply records the review" : undefined;
     }
     try {
       const res = await identity.retryOnAuth(() => sendMessage(runId, text));
@@ -205,7 +186,7 @@ export function Workbench({ runId }: { runId: string }) {
       // No editor on this backend (404/501): draft the patch locally; applying it still records
       // the modify review on the server, which does the repair.
       if (e instanceof ApiError && (e.status === 404 || e.status === 501)) {
-        setExtra((x) => [...x, ...offlinePropose(full, text, full.lastSeq + 1, pendingModify?.target)]);
+        setExtra((x) => [...x, ...offlinePropose(full, text, full.lastSeq + 1, pendingModify?.target ?? selectedId)]);
         pb.play();
         return "no editor on this backend — the patch below was drafted locally; apply records the review";
       }
@@ -320,7 +301,6 @@ export function Workbench({ runId }: { runId: string }) {
   const protocol = protocols?.find((p) => p.id === ui.protocolId);
   const hasGt = protocols === null ? null : (protocol?.has_gt ?? false);
   const conn = isFixture ? { text: "offline replay", cls: "text-muted" } : CONN[live.status];
-  const activeHarness = useActiveHarness();
   const config = useConfig();
   const noEditor = config?.executor === "none";
   const author = isAuthor(identity.reviewer);
@@ -329,36 +309,24 @@ export function Workbench({ runId }: { runId: string }) {
       ? `your invite covers ${identity.reviewer.protocol_id}; decisions on this ${ui.protocolId} run will be refused`
       : null;
 
-  // After run_finished: run again on the active harness, and compare with ground truth.
+  // After run_finished the ground-truth diff loads by itself (§2.6): matched states carry
+  // their similarity, predicted states without a counterpart get the amber ring.
   const finished = ui.status === "done" || ui.status === "failed";
-  const [starting, setStarting] = useState(false);
-  const runAgain = async () => {
-    if (!ui.protocolId || starting) return;
-    setStarting(true);
-    try {
-      const { run_id } = await startRun(ui.protocolId, { executor: "codex" });
-      router.push(`/runs/${encodeURIComponent(run_id)}`);
-    } catch (e) {
-      toast(`run again failed: ${e instanceof Error ? e.message : String(e)}`);
-      setStarting(false);
-    }
-  };
   const [gtDiff, setGtDiff] = useState<GtDiff | null>(null);
-  const [comparing, setComparing] = useState(false);
-  const compareGt = async () => {
-    if (gtDiff) {
-      setGtDiff(null);
-      return;
-    }
-    setComparing(true);
-    try {
-      setGtDiff(await getGtDiff(runId));
-    } catch (e) {
-      toast(`gt-diff: ${e instanceof Error ? e.message : String(e)}`);
-    } finally {
-      setComparing(false);
-    }
-  };
+  useEffect(() => {
+    if (!finished || !hasGt || isFixture || gtDiff) return;
+    let cancelled = false;
+    getGtDiff(runId)
+      .then((d) => {
+        if (!cancelled) setGtDiff(d);
+      })
+      .catch(() => {
+        /* no diff: the canvas just shows no GT badges */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [finished, hasGt, isFixture, runId, gtDiff]);
   // Canonical diff: predicted states with no GT counterpart get the amber ring; matched
   // states carry their similarity. (Legacy diffs without matched_states fall back to edges.)
   const mismatch = useMemo(() => {
@@ -403,31 +371,6 @@ export function Workbench({ runId }: { runId: string }) {
             {identity.reviewer.role === "author" ? " (author)" : ""}
           </button>
         )}
-        {finished && protocol && (
-          <span className="ml-3 flex items-center gap-1.5" data-after-run>
-            {!scopeNotice && (
-              <button className={btn} onClick={() => void runAgain()} disabled={starting} title={`POST /runs {protocol_id: ${ui.protocolId}}`}>
-                {starting ? "starting…" : `run again on ${activeHarness ?? "active harness"}`}
-              </button>
-            )}
-            {hasGt && !isFixture && (
-              <button
-                className={cx(btn, gtDiff && "border-amber-500 text-amber-600 dark:text-amber-400")}
-                onClick={() => void compareGt()}
-                disabled={comparing}
-                title="GET /runs/{id}/gt-diff — highlights states the ground truth does not have"
-              >
-                {comparing
-                  ? "comparing…"
-                  : gtDiff
-                    ? gtDiff.matched_states
-                      ? `GT: ${gtDiff.matched_states.length} matched · ${diffIds(gtDiff.missing_states).length} GT-only · ${diffIds(gtDiff.extra_states).length} predicted-only ✕`
-                      : `GT: ${diffIds(gtDiff.missing_states).length} missing · ${diffIds(gtDiff.extra_states).length} extra ✕`
-                    : "compare with ground truth"}
-              </button>
-            )}
-          </span>
-        )}
         <div className="ml-auto">
           <Playback pb={pb} current={current} onReplay={replay} />
         </div>
@@ -459,6 +402,7 @@ export function Workbench({ runId }: { runId: string }) {
             onNodeClick={(n) => setSelectedId(n.id)}
             onPaneClick={() => setSelectedId(null)}
           />
+          {ui.benchmarkScore && <ScoreBox score={ui.benchmarkScore} gt={ui.gtScore} className="absolute bottom-10 left-2 z-[4]" />}
           {ui.nodes.length === 0 && !error && (
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center" data-empty>
               <span className="rounded border border-line bg-panel px-3 py-1.5 font-mono text-[11px] text-muted">
@@ -496,14 +440,13 @@ export function Workbench({ runId }: { runId: string }) {
       <div className="shrink-0">
         <Chat
           ui={ui}
-          offline={isFixture}
+          offline={isFixture || noEditor}
           text={chatText}
           onText={setChatText}
           focusKey={chatFocus}
           onSend={onSend}
           onApply={onApply}
           pendingErrorType={pendingModify}
-          showInput={!noEditor || isFixture}
         />
         <StatusBar ui={ui} />
       </div>

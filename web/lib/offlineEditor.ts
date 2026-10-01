@@ -25,13 +25,18 @@ const LABEL: Record<SegmentType, string> = {
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-// The state the sentence names (any committed node id: "S2", "cdna_amp",
-// "S_6f364bc90a39"), else the last carried-forward state.
+// The state the sentence names — by id ("S2", "cdna_amp", "S_6f364bc90a39") or by its
+// label ("the amplified cDNA"); the longest match wins. Else the selected state, else
+// the last carried-forward state.
 function pickTarget(ui: UIState, text: string, defaultId?: string | null): MoleculeState | null {
   const lower = text.toLowerCase();
-  const mentioned = ui.nodes
+  const byId = ui.nodes
     .filter((n) => !n.data.ghost && new RegExp(`(^|[^a-z0-9_.])${escapeRe(n.id.toLowerCase())}(?![a-z0-9_.])`).test(lower))
     .sort((a, b) => b.id.length - a.id.length)[0];
+  const byLabel = ui.nodes
+    .filter((n) => !n.data.ghost && n.data.state.label.length >= 6 && lower.includes(n.data.state.label.toLowerCase()))
+    .sort((a, b) => b.data.state.label.length - a.data.state.label.length)[0];
+  const mentioned = byId ?? byLabel;
   const chosen = defaultId ? ui.nodes.find((n) => n.id === defaultId && !n.data.ghost) : undefined;
   const node = mentioned ?? chosen ?? [...ui.nodes].reverse().find((n) => !n.data.ghost && !n.data.discarded);
   return node?.data.state ?? null;

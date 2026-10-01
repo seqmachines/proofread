@@ -3,7 +3,7 @@
 //
 // Node positions are assigned once when a node first appears — a ghost at
 // skill_called or a real node at state_committed — and are never recomputed.
-// The workflow flows top → bottom: y = depth·170, x = branch·300.
+// The workflow flows top → bottom: y = depth·GRID_Y, x = branch·GRID_X.
 import type { Edge, Node } from "@xyflow/react";
 import type {
   BenchmarkScore,
@@ -23,8 +23,8 @@ import type {
   Transition,
 } from "./events";
 
-export const GRID_X = 300; // column spacing (branch)
-export const GRID_Y = 170; // row spacing (depth)
+export const GRID_X = 400; // column spacing (branch): a node is ≤ 320 wide, so columns keep an 80px gutter
+export const GRID_Y = 200; // row spacing (depth): room for the label, the oligo stack and taller nodes
 export const positionOf = (depth: number, branch: number) => ({ x: branch * GRID_X, y: depth * GRID_Y });
 
 export type MoleculeNodeData = {
@@ -36,6 +36,7 @@ export type MoleculeNodeData = {
   findings: number;   // reviewer findings naming this state
   depth: number;
   branch: number;
+  placed?: "substrate" | "heuristic"; // how the slot was chosen; heuristic slots settle once transitions arrive
   gtMismatch?: boolean; // view flag set by the canvas after "Compare with ground truth": no GT counterpart
   gtSimilarity?: number; // view flag: similarity of the matched GT state (0..1)
 };
@@ -182,14 +183,66 @@ function makeNode(
   parentId: string | null,
   nodes: MoleculeNode[],
   ghost: boolean,
+  placed: "substrate" | "heuristic" = "substrate",
 ): MoleculeNode {
   const { depth, branch } = slot(nodes, parentId);
   return {
     id,
     type: "molecule",
     position: positionOf(depth, branch),
-    data: { state, ghost, stale: state.stale_since_revision !== null, discarded: false, failed: 0, findings: 0, depth, branch },
+    data: { state, ghost, stale: state.stale_since_revision !== null, discarded: false, failed: 0, findings: 0, depth, branch, placed },
   };
+}
+
+// Heuristic slots (LLM-built states, whose provenance only arrives with the transition)
+// settle once the edges say where they belong: depth = longest path from an input, branch
+// = the first parent's column or the next free one, in commit order. Substrate-placed
+// skill results, ghosts and discarded by-products keep their spot. This is the second
+// deliberate exception to "positions are never recomputed" (the first is placeDiscarded):
+// imported runs commit every state before any transition, so without it the whole
+// workflow stacks in one column and a parallel branch is invisible.
+function relayer(nodes: MoleculeNode[], edges: TransitionEdge[]): MoleculeNode[] {
+  const movable = new Set(nodes.filter((n) => n.data.placed === "heuristic" && !n.data.ghost && !n.data.discarded).map((n) => n.id));
+  if (movable.size === 0) return nodes;
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const parents = new Map<string, string[]>();
+  for (const e of edges) {
+    if (e.data?.discard || !byId.has(e.source) || !byId.has(e.target)) continue;
+    if (byId.get(e.source)!.data.discarded) continue;
+    const list = parents.get(e.target) ?? [];
+    if (!list.includes(e.source)) list.push(e.source);
+    parents.set(e.target, list);
+  }
+  const memo = new Map<string, number>();
+  const depthOf = (id: string, seen: Set<string>): number => {
+    const known = memo.get(id);
+    if (known !== undefined) return known;
+    if (seen.has(id)) return 0; // cycle guard: never in a well-formed workflow
+    seen.add(id);
+    const n = byId.get(id)!;
+    const ps = parents.get(id) ?? [];
+    const d = movable.has(id) ? (ps.length ? Math.max(...ps.map((p) => depthOf(p, seen))) + 1 : 0) : n.data.depth;
+    memo.set(id, d);
+    return d;
+  };
+  const taken = new Set(nodes.filter((n) => !movable.has(n.id)).map((n) => `${n.data.depth}:${n.data.branch}`));
+  const placed = new Map<string, { depth: number; branch: number }>();
+  for (const n of nodes) {
+    if (!movable.has(n.id)) continue;
+    const depth = depthOf(n.id, new Set());
+    const parentSlot = (parents.get(n.id) ?? [])
+      .map((p) => placed.get(p) ?? (movable.has(p) ? undefined : byId.get(p)!.data))
+      .find((x): x is { depth: number; branch: number } => Boolean(x));
+    let branch = parentSlot ? parentSlot.branch : 0;
+    while (taken.has(`${depth}:${branch}`)) branch += 1;
+    taken.add(`${depth}:${branch}`);
+    placed.set(n.id, { depth, branch });
+  }
+  return nodes.map((n) => {
+    const p = placed.get(n.id);
+    if (!p || (p.depth === n.data.depth && p.branch === n.data.branch)) return n;
+    return { ...n, position: positionOf(p.depth, p.branch), data: { ...n.data, depth: p.depth, branch: p.branch } };
+  });
 }
 
 // Parent heuristic for LLM-built states (no substrate on the event): the newest
@@ -346,10 +399,9 @@ export function reduce(prev: UIState, e: RunEvent): UIState {
             : n,
         );
       } else {
-        const parent = st.skill_call_id
-          ? (s.skillCalls[st.skill_call_id]?.inputs.substrate_id ?? lastCommitted(s.nodes))
-          : lastCommitted(s.nodes);
-        nodes = [...s.nodes, makeNode(st.id, st, parent, s.nodes, false)];
+        const substrate = st.skill_call_id ? s.skillCalls[st.skill_call_id]?.inputs.substrate_id : undefined;
+        const parent = substrate ?? lastCommitted(s.nodes);
+        nodes = [...s.nodes, makeNode(st.id, st, parent, s.nodes, false, substrate ? "substrate" : "heuristic")];
       }
       // A by-product committed after its transition still lands below the kept product,
       // and gets its dashed edge now that its node exists.
@@ -377,7 +429,8 @@ export function reduce(prev: UIState, e: RunEvent): UIState {
       let edges = s.edges.some((x) => x.id === tr.id)
         ? s.edges.map((x) => (x.id === tr.id ? edge : x))
         : [...s.edges, edge];
-      const nodes = tr.discarded?.length ? placeDiscarded(s.nodes, tr.to, tr.discarded) : s.nodes;
+      let nodes = relayer(s.nodes, edges);
+      if (tr.discarded?.length) nodes = placeDiscarded(nodes, tr.to, tr.discarded);
       if (tr.discarded?.length) edges = [...edges, ...discardEdgesFor(tr, nodes, edges)];
       return { ...s, nodes, edges, workflowRevision: e.workflow_revision };
     }
