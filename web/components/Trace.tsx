@@ -34,6 +34,98 @@ import { StrandGlyph } from "./StrandGlyph";
 const Labels = createContext<(id: string) => string>((id) => id);
 const useLabel = () => useContext(Labels);
 
+// Imported runs only carry a step_started for steps where the agent wrote something; the
+// importer tags every file read with its Harbor step ("… (Harbor step 19)"), so the silent
+// steps between two narrated ones can be rebuilt here and shown folded.
+const HARBOR_STEP = /Harbor step (\d+)/;
+const stepOfEvent = (e: RunEvent): number | null => {
+  if (e.t !== "evidence_searched") return null;
+  const n = Number(e.query.match(HARBOR_STEP)?.[1]);
+  return Number.isFinite(n) ? n : null;
+};
+type SilentStep = { step: number; events: RunEvent[] };
+function splitStep(st: TraceStep): { own: RunEvent[]; silent: SilentStep[] } {
+  const own: RunEvent[] = [];
+  const later = new Map<number, RunEvent[]>();
+  for (const e of st.events) {
+    const n = stepOfEvent(e);
+    if (n === null || n <= st.step) own.push(e);
+    else later.set(n, [...(later.get(n) ?? []), e]);
+  }
+  const silent = [...later.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([step, events]) => ({ step, events }));
+  return { own, silent };
+}
+// Does this step change the workflow (or judge it)? Reading alone does not.
+const PLOT_EVENTS = new Set<RunEvent["t"]>(["state_committed", "transition_committed", "state_revised", "transition_revised", "skill_called", "verifier_check", "review_recorded"]);
+
+function SilentFold({
+  from,
+  to,
+  silent,
+  protocolId,
+}: {
+  from: number;
+  to: number;
+  silent: SilentStep[];
+  protocolId: string | null;
+}) {
+  const [open, setOpen] = useState(false);
+  if (to < from && silent.length === 0) return null;
+  const last = Math.max(to, silent[silent.length - 1]?.step ?? to);
+  const reads = silent.reduce((n, st) => n + st.events.length, 0);
+  const quiet = Math.max(0, last - from + 1 - silent.length);
+  const range = last === from ? `step ${from}` : `steps ${from}–${last}`;
+  const summary = [
+    reads > 0
+      ? `${reads} file read${reads === 1 ? "" : "s"} in ${silent.length} step${silent.length === 1 ? "" : "s"}`
+      : null,
+    quiet > 0
+      ? `${quiet} step${quiet === 1 ? "" : "s"} with no recorded reads`
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    <section
+      className="border-b border-line/60 px-3 py-1"
+      data-kind="silent_steps"
+      data-from={from}
+      data-to={last}
+    >
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-baseline gap-2 text-left font-mono text-[10px] text-muted hover:text-foreground"
+        title={open ? "collapse" : "show each step"}
+        aria-expanded={open}
+      >
+        <span className="w-2 shrink-0">{open ? "▾" : "▸"}</span>
+        <span>{range}</span>
+        <span className="opacity-80">
+          · {summary || "no recorded activity"}
+        </span>
+      </button>
+      {open && silent.length > 0 && (
+        <ul className="mt-1 mb-0.5 flex flex-col gap-1 opacity-80">
+          {silent.map((st) => (
+            <li key={st.step} className="flex gap-2">
+              <span className="w-12 shrink-0 font-mono text-[10px] leading-4 text-muted">
+                step {st.step}
+              </span>
+              <ul className="flex min-w-0 flex-1 flex-col gap-0.5 [&_[data-row-label]]:hidden">
+                {st.events.map((e) => (
+                  <EventRow key={e.seq} e={e} protocolId={protocolId} />
+                ))}
+              </ul>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 function StateName({ id }: { id: string }) {
   const labelOf = useLabel();
   const label = labelOf(id);
@@ -44,7 +136,7 @@ function StateName({ id }: { id: string }) {
   );
 }
 
-const MAX_STEPS = 15;
+const MAX_STEPS = 200;
 
 // ---------------------------------------------------------------- small parts
 
@@ -220,7 +312,7 @@ function EventRow({
     case "evidence_searched":
       return (
         <Row e={e} label="search">
-          <span className="text-muted">“{e.query}”</span>{" "}
+          <span className="text-muted">“{e.query.replace(/\s*\(Harbor step \d+\)\s*$/, "")}”</span>{" "}
           <ChunkChips hits={e.results} protocolId={protocolId} />
           {e.results.length === 0 && <Chip>no hits</Chip>}
         </Row>
@@ -645,17 +737,21 @@ function StepCard({
   harness,
   cardAt,
   hideChecks = false,
+  nextStep = null,
 }: {
   step: TraceStep;
   protocolId: string | null;
   harness: HarnessUI;
   cardAt: Map<string, number>; // harness version → seq of the event that carries its card
   hideChecks?: boolean; // verifier checks live in their own tab
+  nextStep?: number | null; // the following narrated step, to size the silent fold
 }) {
+  const { own, silent } = splitStep(step);
+  const plot = own.some((e) => PLOT_EVENTS.has(e.t)); // changes or judges the workflow
   const rows: React.ReactNode[] = [];
   const skip = new Set<number>(); // seqs folded into a CheckGroupRow
   let phase: string | null = null;
-  for (const e of step.events) {
+  for (const e of own) {
     if (skip.has(e.seq)) continue;
     if (hideChecks && e.t === "verifier_check") continue;
     const p = phaseOf(e.t);
@@ -687,10 +783,10 @@ function StepCard({
         x.check === e.check &&
         x.status === e.status &&
         x.message === e.message;
-      const idx = step.events.indexOf(e);
+      const idx = own.indexOf(e);
       const group: Extract<RunEvent, { t: "verifier_check" }>[] = [e];
-      for (let j = idx + 1; j < step.events.length; j++) {
-        const x = step.events[j];
+      for (let j = idx + 1; j < own.length; j++) {
+        const x = own[j];
         if (!same(x)) break;
         group.push(x);
       }
@@ -706,24 +802,45 @@ function StepCard({
     rows.push(<EventRow key={e.seq} e={e} protocolId={protocolId} />);
   }
   return (
-    <section
-      className="border-b border-line px-3 py-2"
-      data-kind="step_started"
-      data-step={step.step}
-    >
-      <div className="flex items-baseline gap-2">
-        <span className="font-mono text-[10px] text-muted">
-          {step.step === 0 ? "record" : `step ${step.step}`}
-        </span>
-        <span className="ml-auto font-mono text-[10px] text-muted tabular-nums">
-          {fmtTime(step.ts)}
-        </span>
-      </div>
-      <p className="text-[12px] leading-4">{step.goal}</p>
-      {rows.length > 0 && (
-        <ul className="mt-1.5 flex flex-col gap-1">{rows}</ul>
-      )}
-    </section>
+    <>
+      <section
+        className="border-b border-line px-3 py-2"
+        data-kind="step_started"
+        data-step={step.step}
+        data-plot={plot ? "true" : "false"}
+      >
+        <div className="flex items-baseline gap-2">
+          <span className="font-mono text-[10px] text-muted">
+            {step.step === 0 ? "record" : `step ${step.step}`}
+          </span>
+          <span className="ml-auto font-mono text-[10px] text-muted tabular-nums">
+            {fmtTime(step.ts)}
+          </span>
+        </div>
+        {/* steps that only read and reason are dimmed; steps that commit, revise or check stay bright */}
+        <p
+          className={cx(
+            "text-[12px] leading-4",
+            !plot && step.step !== 0 && "text-muted",
+          )}
+        >
+          {step.goal}
+        </p>
+        {rows.length > 0 && (
+          <ul
+            className={cx("mt-1.5 flex flex-col gap-1", !plot && "opacity-80")}
+          >
+            {rows}
+          </ul>
+        )}
+      </section>
+      <SilentFold
+        from={step.step + 1}
+        to={(nextStep ?? step.step + 1) - 1}
+        silent={silent}
+        protocolId={protocolId}
+      />
+    </>
   );
 }
 
@@ -840,6 +957,9 @@ export function Trace({ ui, className }: { ui: UIState; className?: string }) {
     </button>
   );
 
+  // Steps are numbered by the agent; the last narrated one is the run's length even when the
+  // importer skipped silent steps in between.
+  const totalSteps = Math.max(ui.trace.length, ...ui.trace.map((st) => st.step));
   const labelOf = useMemo(() => {
     const m = new Map(ui.nodes.map((n) => [n.id, n.data.state.label]));
     return (id: string) => m.get(id) ?? id;
@@ -869,7 +989,7 @@ export function Trace({ ui, className }: { ui: UIState; className?: string }) {
           )}
           <span className="font-mono text-[10px] text-muted tabular-nums">
             {tab === "trace"
-              ? `${ui.trace.length} step${ui.trace.length === 1 ? "" : "s"} · ${ui.lastSeq} events`
+              ? `${totalSteps} step${totalSteps === 1 ? "" : "s"} · ${ui.lastSeq} events`
               : ""}
           </span>
           {tab === "trace" && (
@@ -917,7 +1037,7 @@ export function Trace({ ui, className }: { ui: UIState; className?: string }) {
                   … {hidden} earlier step{hidden === 1 ? "" : "s"} hidden
                 </div>
               )}
-              {steps.map((s) => (
+              {steps.map((s, i) => (
                 <StepCard
                   key={s.seq}
                   step={s}
@@ -925,6 +1045,7 @@ export function Trace({ ui, className }: { ui: UIState; className?: string }) {
                   harness={ui.harness}
                   cardAt={cardAt}
                   hideChecks
+                  nextStep={steps[i + 1]?.step ?? null}
                 />
               ))}
             </>
