@@ -342,7 +342,9 @@ export function Workbench({ runId }: { runId: string }) {
   }, [gtDiff]);
 
   return (
-    <div className="flex h-dvh flex-col bg-background text-foreground">
+    // Fixed to the viewport: the run page never scrolls as a document (panels scroll inside),
+    // so a trackpad swipe over the canvas or trace cannot push the whole page up.
+    <div className="fixed inset-0 flex flex-col bg-background text-foreground">
       <header className="flex h-9 shrink-0 items-center gap-2 border-b border-line px-3 text-[12px]">
         <Link href="/" className="font-mono font-semibold tracking-tight">
           proofread
@@ -402,7 +404,9 @@ export function Workbench({ runId }: { runId: string }) {
             onNodeClick={(n) => setSelectedId(n.id)}
             onPaneClick={() => setSelectedId(null)}
           />
-          {ui.benchmarkScore && <ScoreBox score={ui.benchmarkScore} gt={ui.gtScore} className="absolute bottom-10 left-2 z-[4]" />}
+          {ui.benchmarkScore && (
+            <ScoreBox score={ui.benchmarkScore} gt={ui.gtScore} executor={ui.executor} harness={ui.harnessVersion} className="absolute bottom-10 left-2 z-[4]" />
+          )}
           {ui.nodes.length === 0 && !error && (
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center" data-empty>
               <span className="rounded border border-line bg-panel px-3 py-1.5 font-mono text-[11px] text-muted">
