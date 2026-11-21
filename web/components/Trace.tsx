@@ -27,7 +27,9 @@ import {
   shortChunk,
 } from "@/lib/format";
 import { cx } from "@/lib/cx";
+import type { Comparison } from "@/lib/gtDiff";
 import { StrandGlyph } from "./StrandGlyph";
+import { Duplex } from "./Duplex";
 
 // State ids are the agent's own; readers know states by name. Rows show the name and keep
 // the id in the tooltip.
@@ -920,8 +922,94 @@ function ComparisonSummary({ diff }: { diff: GtDiff }) {
   );
 }
 
-export function Trace({ ui, className, diff, comparisonUnavailable }: {
-  ui: UIState; className?: string; diff?: GtDiff | null; comparisonUnavailable?: boolean;
+/** What the counts above are made of: the states and transitions with no counterpart. */
+function ComparisonDetail({ comparison, onSelect }: { comparison: Comparison; onSelect?: (id: string) => void }) {
+  // Ground-truth transitions name ground-truth states; these are the ones we were given.
+  const truthLabel = new Map<string, string>();
+  for (const s of comparison.missingStates) truthLabel.set(s.id, s.label);
+  for (const c of comparison.matched.values()) truthLabel.set(c.truth.id, c.truth.label);
+  const truthNames = (ids: string[] | undefined) => (ids ?? []).map((id) => truthLabel.get(id) ?? id).join(", ") || "—";
+  const unmatched = Array.from(comparison.unmatched);
+  const partial = Array.from(comparison.matched)
+    .filter(([, c]) => c.similarity < 1)
+    .sort((a, b) => a[1].similarity - b[1].similarity);
+  const transitions = comparison.missingTransitions.length + comparison.extraTransitions.length;
+  if (comparison.missingStates.length + unmatched.length + partial.length + transitions === 0) return null;
+  const heading = "mt-2 mb-1 font-mono text-[9px] tracking-widest text-muted uppercase";
+  const show = (id: string) => (
+    <button onClick={() => onSelect?.(id)} className="text-left hover:underline" title="show on the canvas" data-select-state={id}>
+      <StateName id={id} />
+    </button>
+  );
+  const segments = (missing: number, extra: number) =>
+    [missing > 0 ? `${missing} missing` : "", extra > 0 ? `${extra} not in the ground truth` : ""].filter(Boolean).join(" · ") || "same segments";
+  return (
+    <div className="border-b border-line px-3 pb-2 text-[11px] leading-4" data-comparison-detail>
+      {comparison.missingStates.length > 0 && (
+        <>
+          <div className={heading}>in the ground truth, not reconstructed · {comparison.missingStates.length}</div>
+          <ul className="flex flex-col gap-1.5">
+            {comparison.missingStates.map((s) => (
+              <li key={s.id} data-gt-missing-state={s.id}>
+                <div className="mb-0.5 font-medium" title={s.id}>
+                  {s.label}
+                </div>
+                <Duplex state={s} />
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {unmatched.length > 0 && (
+        <>
+          <div className={heading}>not in the ground truth · {unmatched.length}</div>
+          <ul className="flex flex-col gap-0.5">
+            {unmatched.map((id) => (
+              <li key={id}>{show(id)}</li>
+            ))}
+          </ul>
+        </>
+      )}
+      {partial.length > 0 && (
+        <>
+          <div className={heading}>partial matches · {partial.length}</div>
+          <ul className="flex flex-col gap-0.5">
+            {partial.map(([id, c]) => (
+              <li key={id} className="flex items-baseline gap-1.5">
+                <span className="w-7 shrink-0 font-mono text-[10px] text-amber-600 tabular-nums dark:text-amber-400">{c.similarity.toFixed(2)}</span>
+                {show(id)}
+                <span className="text-muted">— {segments(c.missing.top.length + c.missing.bottom.length, c.extra.top.length + c.extra.bottom.length)}</span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {transitions > 0 && (
+        <>
+          <div className={heading}>transitions · {transitions}</div>
+          <ul className="flex flex-col gap-0.5">
+            {comparison.missingTransitions.map((t) => (
+              <li key={t.transition_id} data-gt-missing-transition={t.transition_id}>
+                <span className="text-muted">not reconstructed:</span> <span className="font-mono">{t.operation.replace(/_/g, " ")}</span>{" "}
+                {truthNames(t.substrate_state_ids)} → {truthNames(t.product_state_ids)}
+              </li>
+            ))}
+            {comparison.extraTransitions.map((t) => (
+              <li key={t.id}>
+                <span className="text-muted">not in the ground truth:</span> <span className="font-mono">{t.op.replace(/_/g, " ")}</span> <StateName id={t.from} /> →{" "}
+                <StateName id={t.to} />
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </div>
+  );
+}
+
+export function Trace({ ui, className, diff, comparison, comparisonUnavailable, onSelectState }: {
+  ui: UIState; className?: string; diff?: GtDiff | null; comparison?: Comparison | null; comparisonUnavailable?: boolean;
+  onSelectState?: (id: string) => void; // a state named in the comparison was clicked
 }) {
   const [pinned, setPinned] = useState(false);
   const [tab, setTab] = useState<"trace" | "verifier">("trace");
@@ -1035,6 +1123,7 @@ export function Trace({ ui, className, diff, comparisonUnavailable }: {
           {tab === "verifier" ? (
             <>
               {diff && <ComparisonSummary diff={diff} />}
+              {comparison && <ComparisonDetail comparison={comparison} onSelect={onSelectState} />}
               {comparisonUnavailable && <p className="px-3 text-[11px] text-muted">The ground-truth comparison could not be loaded.</p>}
               <VerifierPanel ui={ui} />
             </>

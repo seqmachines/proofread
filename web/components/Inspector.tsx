@@ -1,16 +1,18 @@
 "use client";
 // components/Inspector.tsx — "where did this come from?" for one state, read-only.
-// Slides over the right edge of the canvas: strands, provenance (incoming transition
-// incl. oligos/discards), the ground-truth comparison the run page loaded, failed checks
-// and findings for this state, evidence chunks (GET /chunks/{id}, falling back to the
-// search snippet), and any reviews already recorded in the run's history.
+// Slides over the right edge of the canvas: provenance (incoming transition incl.
+// oligos/discards), the strands with the matched ground-truth molecule under them and
+// the segments that have no counterpart outlined (lib/gtDiff.ts), failed checks and
+// findings for this state, evidence chunks (GET /chunks/{id}, falling back to the search
+// snippet), and any reviews already recorded in the run's history.
 import { useEffect, useState } from "react";
-import type { Chunk, GtDiff, Segment } from "@/lib/events";
+import type { Chunk, Segment } from "@/lib/events";
 import { oligoName } from "./TransitionEdge";
 import { Duplex } from "./Duplex";
 import type { MoleculeNode, UIState } from "@/lib/reducer";
 import { getChunk } from "@/lib/api";
 import { segmentColor } from "@/lib/colors";
+import { type Comparison, type StateComparison, markedNames } from "@/lib/gtDiff";
 import { fmtTime, shortChunk } from "@/lib/format";
 import { cx } from "@/lib/cx";
 
@@ -42,11 +44,6 @@ function useChunks(ids: string[]): Record<string, Chunk | null> {
   }, [key]);
   return chunks;
 }
-
-// gt-diff entries are MoleculeState-like objects (states) or {type, from, to} (edges); strings are ids.
-
-const diffHas = (list: unknown[] | undefined, id: string) =>
-  (list ?? []).some((x) => x === id || (typeof x === "object" && x !== null && (x as { id?: unknown }).id === id));
 
 // ---------------------------------------------------------------- parts
 
@@ -96,18 +93,49 @@ function SegmentTable({ name, segments }: { name: string; segments: Segment[] })
   );
 }
 
+const caption = "font-mono text-[9px] tracking-widest text-muted uppercase";
+
+/** The matched ground-truth molecule under the agent's, and in words what differs. */
+function GroundTruth({ state, cmp }: { state: MoleculeNode["data"]["state"]; cmp: StateComparison }) {
+  const list = (xs: { name: string; row: string }[]) => xs.map((x) => `${x.name} (${x.row})`).join(", ");
+  const missing = markedNames(cmp.truth, cmp.missing);
+  const extra = markedNames(state, cmp.extra);
+  const summary =
+    missing.length > 0 || extra.length > 0
+      ? [missing.length > 0 ? `missing here: ${list(missing)}` : "", extra.length > 0 ? `not in the ground truth: ${list(extra)}` : ""].filter(Boolean).join(" · ")
+      : cmp.similarity < 1
+        ? "same segments; the difference is in pairing, order or strand type"
+        : "same segments";
+  return (
+    <div className="mt-2" data-gt-canonical>
+      <div className="mb-1 flex items-center gap-1.5">
+        <span className={caption}>ground truth</span>
+        <Tag tone={cmp.similarity >= 0.8 ? "accent" : "warn"}>similarity {cmp.similarity.toFixed(2)}</Tag>
+        <span className="min-w-0 truncate text-muted" title={cmp.truth.id}>
+          {cmp.truth.label ?? cmp.truth.id}
+          {cmp.flipped ? " · turned to match" : ""}
+        </span>
+      </div>
+      <Duplex state={cmp.truth} marks={cmp.missing} />
+      <p className="mt-1 text-muted" data-gt-summary>
+        {summary}
+      </p>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------- inspector
 
 export interface InspectorProps {
   node: MoleculeNode;
   ui: UIState;
   hasGt: boolean | null; // null = unknown (protocol list unavailable)
-  gtDiff?: GtDiff | null; // loaded by the run page once the run has finished
+  comparison?: Comparison | null; // ground-truth comparison, loaded by the run page once the run has finished
   gtUnavailable?: boolean; // the comparison request failed
   onClose: () => void;
 }
 
-export function Inspector({ node, ui, hasGt, gtDiff, gtUnavailable = false, onClose }: InspectorProps) {
+export function Inspector({ node, ui, hasGt, comparison = null, gtUnavailable = false, onClose }: InspectorProps) {
   const { state, ghost, stale, discarded } = node.data;
   const incoming = ui.edges.filter((e) => e.target === state.id && !e.data?.discard).map((e) => e.data!.transition);
   const evidenceIds = Array.from(new Set([...state.evidence, ...incoming.flatMap((t) => t.evidence)]));
@@ -115,8 +143,8 @@ export function Inspector({ node, ui, hasGt, gtDiff, gtUnavailable = false, onCl
   const checks = ui.checks.filter((c) => c.state_id === state.id);
   const failedChecks = checks.filter((c) => c.status === "fail");
   const findings = ui.findings.filter((f) => f.state_id === state.id);
-  const match = (gtDiff?.matched_states ?? []).find((m) => m.predicted?.id === state.id);
-  const unmatched = gtDiff ? diffHas(gtDiff.extra_states, state.id) : false;
+  const cmp = comparison?.matched.get(state.id);
+  const unmatched = comparison?.unmatched.has(state.id) ?? false;
   const reviews = ui.reviews.filter((r) => r.target_id === state.id);
   const labelOf = (id: string) => ui.nodes.find((n) => n.id === id)?.data.state.label ?? id;
 
@@ -158,29 +186,22 @@ export function Inspector({ node, ui, hasGt, gtDiff, gtUnavailable = false, onCl
 
       <div className="min-h-0 flex-1 overflow-y-auto text-[11px] leading-4">
         <Section title="strands">
-          <Duplex state={state} />
+          {cmp && <div className={cx(caption, "mb-1")}>agent</div>}
+          <Duplex state={state} marks={cmp?.extra} />
+          {cmp ? (
+            <GroundTruth state={state} cmp={cmp} />
+          ) : unmatched ? (
+            <div className="mt-2" data-gt-unmatched>
+              <Tag tone="warn">no ground-truth counterpart</Tag>
+            </div>
+          ) : hasGt === true ? (
+            <div className="mt-2 text-muted">
+              ground truth: {comparison ? "not part of the comparison" : gtUnavailable ? "the comparison could not be loaded" : "loads when the run has finished"}
+            </div>
+          ) : null}
           <SegmentTable name="top, 5′ to 3′" segments={state.strands.top} />
           <SegmentTable name="bottom, 3′ to 5′" segments={state.strands.bottom} />
         </Section>
-
-        {(hasGt === true || match || unmatched) && (
-          <Section title="ground truth">
-            {match ? (
-              <div className="flex items-center gap-1.5" data-gt-canonical>
-                <Tag tone={match.similarity >= 0.8 ? "accent" : "warn"}>similarity {match.similarity.toFixed(2)}</Tag>
-                <span className="truncate" title={match.truth.id}>
-                  {match.truth.label ?? match.truth.id}
-                </span>
-              </div>
-            ) : unmatched ? (
-              <Tag tone="rose">no ground-truth counterpart</Tag>
-            ) : (
-              <span className="text-muted">
-                {gtDiff ? "not part of the comparison" : gtUnavailable ? "the comparison could not be loaded" : "loads when the run has finished"}
-              </span>
-            )}
-          </Section>
-        )}
 
         {(failedChecks.length > 0 || findings.length > 0) && (
           <Section title={`failed checks · ${failedChecks.length}`}>

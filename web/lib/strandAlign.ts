@@ -41,12 +41,19 @@ const ROLES: [RegExp, string][] = [
 ];
 
 /** What a segment is, independent of how each side happened to name it. */
-export function roleKey(seg: Pick<Segment, "name" | "type">): string {
-  if (seg.type === "insert") return "insert";
+export interface SegmentKey {
+  role: string;
+  type: string;
+  known: boolean; // a recognised alias (or an insert), not just the cleaned-up name
+}
+
+export function segmentKey(seg: Pick<Segment, "name" | "type">): SegmentKey {
+  if (seg.type === "insert") return { role: "insert", type: seg.type, known: true };
   const text = words(seg.name);
   const hit = ROLES.find(([re]) => re.test(text));
-  if (hit) return hit[1];
-  return text.replace(/\b(complementary|complement|reverse|derived|strand)\b/g, "").replace(/\s+/g, " ").trim();
+  if (hit) return { role: hit[1], type: seg.type, known: true };
+  const role = text.replace(/\b(complementary|complement|reverse|derived|strand)\b/g, "").replace(/\s+/g, " ").trim();
+  return { role, type: seg.type, known: false };
 }
 
 /**
@@ -75,14 +82,9 @@ export function alignPairs<A, B>(a: A[], b: B[], score: (x: A, y: B) => number):
   return pairs;
 }
 
-interface Keyed {
-  role: string;
-  type: string;
-}
-const keyed = (s: Segment): Keyed => ({ role: roleKey(s), type: s.type });
 // The backend's own pairing rule (structure.py _project_state): a primer's oligo-dT anneals to poly(A).
 const annealed = (role: string) => (role === "oligo_dt" ? "poly_tail" : role);
-const pairScore = (a: Keyed, b: Keyed) =>
+const pairScore = (a: SegmentKey, b: SegmentKey) =>
   a.role !== "" && annealed(a.role) === annealed(b.role) ? 3 : a.type !== b.type ? 0 : a.type === "other" ? 1 : 2;
 
 const range = (from: number, to: number) => Array.from({ length: Math.max(0, to - from) }, (_, k) => from + k);
@@ -179,7 +181,7 @@ export function alignStrands(state: Strands): Column[] {
   const declared = declaredPairs(state);
   const cols = declared
     ? columnsFromPairs(top.length, bottom.length, declared, false)
-    : columnsFromPairs(top.length, bottom.length, alignPairs(top.map(keyed), bottom.map(keyed), pairScore), true);
+    : columnsFromPairs(top.length, bottom.length, alignPairs(top.map(segmentKey), bottom.map(segmentKey), pairScore), true);
   cache.set(state.strands, cols);
   return cols;
 }

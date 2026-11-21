@@ -1,7 +1,8 @@
 // components/Duplex.tsx — a molecule's strands as named §2.7 blocks in one grid: one grid
 // column per alignment column (lib/strandAlign.ts), each as wide as its longer name, so
 // paired segments sit exactly over each other. Scrolls sideways rather than wrapping,
-// because a wrapped row would lose the register.
+// because a wrapped row would lose the register. `marks` outlines the segments that have
+// no counterpart in a ground-truth comparison (lib/gtDiff.ts).
 import type { MoleculeState, Segment } from "@/lib/events";
 import { segmentColor, segmentText } from "@/lib/colors";
 import { alignStrands } from "@/lib/strandAlign";
@@ -12,7 +13,7 @@ const ROWS: { row: "top" | "bottom"; ends: [string, string] }[] = [
   { row: "bottom", ends: ["3′", "5′"] },
 ];
 
-function Cell({ seg }: { seg: Segment | undefined }) {
+function Cell({ seg, marked }: { seg: Segment | undefined; marked: boolean }) {
   if (!seg) {
     return (
       <span className="flex h-4 min-w-3 items-center" title="no partner segment">
@@ -22,16 +23,28 @@ function Cell({ seg }: { seg: Segment | undefined }) {
   }
   return (
     <span
-      title={`${seg.name} · ${seg.type} · origin ${seg.origin}`}
+      title={`${seg.name} · ${seg.type} · origin ${seg.origin}${marked ? " · no counterpart" : ""}`}
+      data-marked={marked ? seg.name : undefined}
       style={{ background: segmentColor(seg.type), color: segmentText(seg.type) }}
-      className="h-4 rounded-[2px] px-1.5 text-center font-mono text-[10px] leading-4 font-medium whitespace-nowrap"
+      className={cx(
+        "h-4 rounded-[2px] px-1.5 text-center font-mono text-[10px] leading-4 font-medium whitespace-nowrap",
+        marked && "outline-2 -outline-offset-1 outline-amber-500",
+      )}
     >
       {seg.name}
     </span>
   );
 }
 
-export function Duplex({ state, className }: { state: Pick<MoleculeState, "strands" | "benchmark_structure">; className?: string }) {
+export function Duplex({
+  state,
+  marks,
+  className,
+}: {
+  state: Pick<MoleculeState, "strands" | "benchmark_structure">;
+  marks?: { top: number[]; bottom: number[] };
+  className?: string;
+}) {
   const columns = alignStrands(state);
   const rows = ROWS.filter(({ row }) => state.strands[row].length > 0);
   if (rows.length === 0) return <span className="font-mono text-[10px] text-muted">no segments</span>;
@@ -47,7 +60,7 @@ export function Duplex({ state, className }: { state: Pick<MoleculeState, "stran
             <span className="pr-1 select-none">{ends[0]}</span>
             {columns.map((c, k) => {
               const i = c[row];
-              return <Cell key={k} seg={i === null ? undefined : state.strands[row][i]} />;
+              return <Cell key={k} seg={i === null ? undefined : state.strands[row][i]} marked={i !== null && (marks?.[row].includes(i) ?? false)} />;
             })}
             <span className="pl-1 select-none">{ends[1]}</span>
           </div>

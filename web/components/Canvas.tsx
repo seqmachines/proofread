@@ -19,7 +19,8 @@ import "@xyflow/react/dist/style.css";
 import type { MoleculeNode as MoleculeNodeType, TransitionEdge as TransitionEdgeType } from "@/lib/reducer";
 import { cx } from "@/lib/cx";
 import { SEGMENT_COLORS, SEGMENT_TYPES } from "@/lib/colors";
-import { MoleculeNode } from "./MoleculeNode";
+import { type Comparison, markedNames } from "@/lib/gtDiff";
+import { GT_MARK, MoleculeNode } from "./MoleculeNode";
 import { TransitionEdge } from "./TransitionEdge";
 
 const nodeTypes = { molecule: MoleculeNode };
@@ -70,15 +71,14 @@ export interface CanvasProps {
   nodes: MoleculeNodeType[];
   edges: TransitionEdgeType[];
   selectedId?: string | null;
-  mismatch?: Set<string> | null; // predicted state ids with no GT counterpart
-  similarity?: Map<string, number> | null; // predicted state id → similarity of its GT match
+  comparison?: Comparison | null; // ground-truth comparison (lib/gtDiff.ts), once the run has finished
   tick?: number; // last applied event seq — drives the debounced refit
   onNodeClick?: (node: MoleculeNodeType) => void;
   onPaneClick?: () => void;
   className?: string;
 }
 
-function Legend() {
+function Legend({ compared }: { compared: boolean }) {
   return (
     <div
       className="pointer-events-none absolute bottom-2 left-2 z-[4] flex flex-wrap gap-x-2.5 gap-y-0.5 rounded border border-line bg-panel/90 px-2 py-1 font-mono text-[9px] leading-3 text-muted"
@@ -93,6 +93,11 @@ function Legend() {
       <span className="flex items-center gap-1">
         <span className="inline-block h-0 w-3 border-t border-line" /> overhang
       </span>
+      {compared && (
+        <span className="flex items-center gap-1" data-legend-gt>
+          <span className="inline-block h-2 w-3 rounded-[1px]" style={{ boxShadow: `inset 0 0 0 2px ${GT_MARK}` }} /> not in ground truth
+        </span>
+      )}
     </div>
   );
 }
@@ -117,24 +122,26 @@ function useStableNodes(nodes: MoleculeNodeType[]): MoleculeNodeType[] {
   }, [nodes, cache]);
 }
 
-export function Canvas({ nodes, edges, selectedId = null, mismatch = null, similarity = null, tick = 0, onNodeClick, onPaneClick, className }: CanvasProps) {
+export function Canvas({ nodes, edges, selectedId = null, comparison = null, tick = 0, onNodeClick, onPaneClick, className }: CanvasProps) {
   // Selection and GT highlighting are view state, not workflow state: applied on top of the reducer's nodes.
   const withView = useMemo(
     () =>
-      selectedId || (mismatch && mismatch.size > 0) || (similarity && similarity.size > 0)
+      selectedId || comparison
         ? nodes.map((n) => {
             const sel = n.id === selectedId;
-            const mm = Boolean(mismatch?.has(n.id));
-            const sim = similarity?.get(n.id);
-            return sel || mm || sim !== undefined ? { ...n, selected: sel, data: { ...n.data, gtMismatch: mm, gtSimilarity: sim } } : n;
+            const mm = Boolean(comparison?.unmatched.has(n.id));
+            const c = comparison?.matched.get(n.id);
+            if (!sel && !mm && !c) return n;
+            const gt = c && { gtSimilarity: c.similarity, gtExtra: c.extra, gtMissing: markedNames(c.truth, c.missing).map((m) => m.name) };
+            return { ...n, selected: sel, data: { ...n.data, gtMismatch: mm, ...gt } };
           })
         : nodes,
-    [nodes, selectedId, mismatch, similarity],
+    [nodes, selectedId, comparison],
   );
   const shown = useStableNodes(withView);
   return (
     <div className={cx("relative h-full w-full", className)}>
-      <Legend />
+      <Legend compared={comparison !== null} />
       <ReactFlowProvider>
         <ReactFlow<MoleculeNodeType, TransitionEdgeType>
           nodes={shown}

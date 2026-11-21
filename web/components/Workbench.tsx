@@ -8,6 +8,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import type { GtDiff, Protocol } from "@/lib/events";
+import { compareRun } from "@/lib/gtDiff";
+import { fixtureGtDiff } from "@/lib/fixtureDiff";
 import { fold, type UIState } from "@/lib/reducer";
 import { fixtureName, useFixtureEvents } from "@/lib/fixture";
 import { useRunEvents } from "@/lib/useRunEvents";
@@ -22,17 +24,6 @@ import { ScoreBox } from "./ScoreBox";
 // Client-only: React Flow resolves colorMode="system" in the browser, so SSR would
 // hydrate "light" against "dark" and warn. Nothing on the canvas is server-known anyway.
 const Canvas = dynamic(() => import("./Canvas").then((m) => m.Canvas), { ssr: false });
-
-const diffIds = (list: unknown[] | undefined) =>
-  (list ?? []).flatMap((x) => (typeof x === "string" ? [x] : typeof x === "object" && x !== null && typeof (x as { id?: unknown }).id === "string" ? [(x as { id: string }).id] : []));
-
-// Edge entries look like {type, from, to}; both ends may name a state.
-const edgeEnds = (list: unknown[] | undefined) =>
-  (list ?? []).flatMap((x) => {
-    if (typeof x !== "object" || x === null) return [];
-    const e = x as { from?: unknown; to?: unknown; source?: unknown; target?: unknown };
-    return [e.from, e.to, e.source, e.target].filter((v): v is string => typeof v === "string");
-  });
 
 const CONN: Record<ConnectionStatus, { text: string; cls: string }> = {
   idle: { text: "—", cls: "text-muted" },
@@ -116,13 +107,14 @@ export function Workbench({ runId, label }: { runId: string; label?: string }) {
   const hasGt = protocols === null ? null : (protocol?.has_gt ?? false);
   const conn = isFixture ? { text: "offline replay", cls: "text-muted" } : CONN[live.status];
 
-  // After run_finished the ground-truth diff loads by itself (§2.6): matched states carry
-  // their similarity, predicted states without a counterpart get the amber ring.
+  // After run_finished the ground-truth diff loads by itself (§2.6). lib/gtDiff.ts turns it
+  // into what the canvas, the inspector and the Verifier tab draw: which states matched and
+  // how well, which segments have no counterpart, and what was never matched.
   const finished = ui.status === "done" || ui.status === "failed";
-  const [gtDiff, setGtDiff] = useState<GtDiff | null>(null);
+  const [liveDiff, setGtDiff] = useState<GtDiff | null>(null);
   const [gtError, setGtError] = useState(false);
   useEffect(() => {
-    if (!finished || !hasGt || isFixture || gtDiff) return;
+    if (!finished || !hasGt || isFixture || liveDiff) return;
     let cancelled = false;
     getGtDiff(runId)
       .then((d) => {
@@ -132,20 +124,12 @@ export function Workbench({ runId, label }: { runId: string; label?: string }) {
     return () => {
       cancelled = true;
     };
-  }, [finished, hasGt, isFixture, runId, gtDiff]);
-  // Canonical diff: predicted states with no GT counterpart get the amber ring; matched
-  // states carry their similarity. (Legacy diffs without matched_states fall back to edges.)
-  const mismatch = useMemo(() => {
-    if (!gtDiff) return null;
-    const ids = new Set(ui.nodes.map((n) => n.id));
-    const extra = diffIds(gtDiff.extra_states);
-    const legacy = gtDiff.matched_states ? [] : edgeEnds(gtDiff.extra_edges);
-    return new Set([...extra, ...legacy].filter((id) => ids.has(id)));
-  }, [gtDiff, ui.nodes]);
-  const similarity = useMemo(() => {
-    if (!gtDiff?.matched_states) return null;
-    return new Map(gtDiff.matched_states.filter((m) => m.predicted?.id).map((m) => [m.predicted.id, m.similarity]));
-  }, [gtDiff]);
+  }, [finished, hasGt, isFixture, runId, liveDiff]);
+  // The offline benchmark fixture carries its own hand-written comparison (lib/fixtureDiff.ts).
+  const fixtureDiff = useMemo(() => (fixtureKey !== null && finished ? fixtureGtDiff(fixtureKey, ui) : null), [finished, fixtureKey, ui]);
+  // Only at the end of the run: scrubbed back, the canvas shows states the comparison was not made on.
+  const gtDiff = finished ? (isFixture ? fixtureDiff : liveDiff) : null;
+  const comparison = useMemo(() => (gtDiff ? compareRun(gtDiff) : null), [gtDiff]);
 
   return (
     // Fixed to the viewport: the run page never scrolls as a document (panels scroll inside),
@@ -199,8 +183,7 @@ export function Workbench({ runId, label }: { runId: string; label?: string }) {
             nodes={ui.nodes}
             edges={ui.edges}
             selectedId={selected ? selectedId : null}
-            mismatch={mismatch}
-            similarity={similarity}
+            comparison={comparison}
             tick={ui.lastSeq}
             onNodeClick={(n) => setSelectedId(n.id)}
             onPaneClick={() => setSelectedId(null)}
@@ -229,14 +212,20 @@ export function Workbench({ runId, label }: { runId: string; label?: string }) {
               node={selected}
               ui={ui}
               hasGt={hasGt}
-              gtDiff={gtDiff}
+              comparison={comparison}
               gtUnavailable={gtError}
               onClose={() => setSelectedId(null)}
             />
           )}
         </div>
-        <Trace ui={ui} diff={finished ? gtDiff : null} comparisonUnavailable={finished && gtError}
-          className="w-[35%] min-w-[320px] shrink-0 border-l border-line" />
+        <Trace
+          ui={ui}
+          diff={gtDiff}
+          comparison={comparison}
+          comparisonUnavailable={finished && gtError}
+          onSelectState={setSelectedId}
+          className="w-[35%] min-w-[320px] shrink-0 border-l border-line"
+        />
       </div>
     </div>
   );

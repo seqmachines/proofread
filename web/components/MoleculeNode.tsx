@@ -8,7 +8,8 @@
 // transparent so the strands are the figure.
 // Ghost (skill result not yet committed): dashed border. Stale or discarded: 40%
 // opacity. Badges only when they say something: review decision, failed checks,
-// findings, ground-truth similarity. Amber ring: no ground-truth counterpart.
+// findings, ground-truth similarity. Amber means "differs from the ground truth": a ring
+// on a state with no counterpart, an outline on a segment with none.
 import { memo } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import type { Segment } from "@/lib/events";
@@ -24,6 +25,7 @@ const CHAR_W = 5.4; // 9px Geist Mono, approx
 const PAD_X = 10;
 export const NODE_MIN_W = 200;
 export const NODE_MAX_W = 320;
+export const GT_MARK = "#f59e0b"; // amber-500: no ground-truth counterpart
 
 // §2.1 review_status, set only by human reviews (review_recorded).
 const REVIEW_BADGE: Record<string, string> = {
@@ -33,17 +35,18 @@ const REVIEW_BADGE: Record<string, string> = {
   unresolved: "border-amber-500/60 text-amber-600 dark:text-amber-400",
 };
 
-function Block({ seg, width, last }: { seg: Segment; width: number; last: boolean }) {
+function Block({ seg, width, last, marked }: { seg: Segment; width: number; last: boolean; marked: boolean }) {
   const showName = seg.name.length * CHAR_W + 4 <= width;
   return (
     <span
-      title={`${seg.name} · ${seg.type} · ~${estimateLength(seg)} nt`}
+      title={`${seg.name} · ${seg.type} · ~${estimateLength(seg)} nt${marked ? " · not in the ground truth" : ""}`}
+      data-gt-extra={marked ? seg.name : undefined}
       style={{
         width,
         height: BAR_H,
         background: segmentColor(seg.type),
         color: segmentText(seg.type),
-        boxShadow: last ? undefined : "inset -1px 0 0 rgba(255,255,255,0.45)",
+        boxShadow: marked ? `inset 0 0 0 2px ${GT_MARK}` : last ? undefined : "inset -1px 0 0 rgba(255,255,255,0.45)",
       }}
       className="block shrink-0 overflow-hidden text-center font-mono text-[9px] leading-[14px] font-medium whitespace-nowrap"
     >
@@ -52,7 +55,7 @@ function Block({ seg, width, last }: { seg: Segment; width: number; last: boolea
   );
 }
 
-function Bar({ segs, row, columns, widths, ends }: { segs: Segment[]; row: "top" | "bottom"; columns: Column[]; widths: number[]; ends: [string, string] }) {
+function Bar({ segs, row, columns, widths, ends, marks }: { segs: Segment[]; row: "top" | "bottom"; columns: Column[]; widths: number[]; ends: [string, string]; marks?: number[] }) {
   const barW = widths.reduce((s, w) => s + w, 0);
   return (
     <div className="flex items-center" style={{ height: BAR_H }}>
@@ -64,7 +67,7 @@ function Bar({ segs, row, columns, widths, ends }: { segs: Segment[]; row: "top"
           const i = c[row];
           const w = widths[k];
           return i !== null && segs[i] ? (
-            <Block key={k} seg={segs[i]} width={w} last={k === columns.length - 1} />
+            <Block key={k} seg={segs[i]} width={w} last={k === columns.length - 1} marked={marks?.includes(i) ?? false} />
           ) : (
             <span key={k} className="flex items-center" style={{ width: w, height: BAR_H }} title="overhang — no partner segment">
               <span className="block w-full border-t border-line" />
@@ -80,7 +83,7 @@ function Bar({ segs, row, columns, widths, ends }: { segs: Segment[]; row: "top"
 }
 
 function MoleculeNodeImpl({ data, selected }: NodeProps<MoleculeNodeType>) {
-  const { state, ghost, stale, discarded, failed, gtMismatch, gtSimilarity } = data;
+  const { state, ghost, stale, discarded, failed, gtMismatch, gtSimilarity, gtExtra, gtMissing } = data;
   const { top, bottom } = state.strands;
   const columns = alignStrands(state);
   const widths = columnWidths(columns, top, bottom, NODE_MAX_W - 2 * PAD_X - 2 * END_W - 4);
@@ -88,7 +91,9 @@ function MoleculeNodeImpl({ data, selected }: NodeProps<MoleculeNodeType>) {
   const width = Math.max(NODE_MIN_W, Math.min(NODE_MAX_W, barW + 2 * PAD_X));
   const review = state.review_status;
   const extraStrands = Math.max(0, (state.benchmark_structure?.strands.length ?? 0) - 2);
-  const badges = review !== "unreviewed" || data.findings > 0 || typeof gtSimilarity === "number" || failed > 0 || ghost || discarded || extraStrands > 0;
+  const badges = review !== "unreviewed" || data.findings > 0 || typeof gtSimilarity === "number" || gtMismatch || failed > 0 || ghost || discarded || extraStrands > 0;
+  const extraNames = gtExtra ? [...gtExtra.top.map((i) => top[i]?.name), ...gtExtra.bottom.map((i) => bottom[i]?.name)].filter(Boolean) : [];
+  const missingNames = gtMissing ?? [];
 
   return (
     <div
@@ -110,8 +115,8 @@ function MoleculeNodeImpl({ data, selected }: NodeProps<MoleculeNodeType>) {
       </div>
 
       <div className="flex flex-col gap-[3px]">
-        {top.length > 0 && <Bar segs={top} row="top" columns={columns} widths={widths} ends={["5′", "3′"]} />}
-        {bottom.length > 0 && <Bar segs={bottom} row="bottom" columns={columns} widths={widths} ends={["3′", "5′"]} />}
+        {top.length > 0 && <Bar segs={top} row="top" columns={columns} widths={widths} ends={["5′", "3′"]} marks={gtExtra?.top} />}
+        {bottom.length > 0 && <Bar segs={bottom} row="bottom" columns={columns} widths={widths} ends={["3′", "5′"]} marks={gtExtra?.bottom} />}
       </div>
 
       {badges && (
@@ -136,10 +141,23 @@ function MoleculeNodeImpl({ data, selected }: NodeProps<MoleculeNodeType>) {
           {typeof gtSimilarity === "number" && (
             <span
               className={cx("rounded-sm border px-1 tabular-nums", gtSimilarity >= 0.8 ? "border-emerald-500/60 text-emerald-600 dark:text-emerald-400" : "border-amber-500/60 text-amber-600 dark:text-amber-400")}
-              title={`matched a ground-truth state with similarity ${gtSimilarity.toFixed(2)}`}
+              title={[
+                `matched a ground-truth state with similarity ${gtSimilarity.toFixed(2)}`,
+                missingNames.length > 0 ? `missing here: ${missingNames.join(", ")}` : "",
+                extraNames.length > 0 ? `not in the ground truth: ${extraNames.join(", ")}` : "",
+              ]
+                .filter(Boolean)
+                .join("\n")}
               data-gt-similarity={gtSimilarity.toFixed(2)}
             >
               GT {gtSimilarity.toFixed(2)}
+              {missingNames.length > 0 ? ` · ${missingNames.length} missing` : ""}
+              {extraNames.length > 0 ? ` · ${extraNames.length} extra` : ""}
+            </span>
+          )}
+          {gtMismatch && (
+            <span className="rounded-sm border border-amber-500/60 px-1 text-amber-600 dark:text-amber-400" title="no ground-truth state matches this one">
+              not in GT
             </span>
           )}
           {failed > 0 && (

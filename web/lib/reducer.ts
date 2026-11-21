@@ -39,6 +39,8 @@ export type MoleculeNodeData = {
   placed?: "substrate" | "heuristic"; // how the slot was chosen; heuristic slots settle once transitions arrive
   gtMismatch?: boolean; // view flag set by the canvas after "Compare with ground truth": no GT counterpart
   gtSimilarity?: number; // view flag: similarity of the matched GT state (0..1)
+  gtExtra?: { top: number[]; bottom: number[] }; // view flag: this state's segments with no GT counterpart
+  gtMissing?: string[]; // view flag: names of the matched GT state's segments this state lacks
 };
 export type MoleculeNode = Node<MoleculeNodeData, "molecule">;
 
