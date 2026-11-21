@@ -1,10 +1,11 @@
 "use client";
 // components/MoleculeNode.tsx — one molecule state, drawn after the paper's Figure 1:
 // the full name on top, then each strand as a thin continuous bar of §2.7-colored
-// segment blocks with 5′/3′ ends (top 5′ left, bottom 3′ left; bottom[i] sits under
-// top[i]). Block widths follow the segment's (estimated) length — lib/segmentLength.ts.
-// A segment present on one strand only is an overhang: bar on that strand, hairline
-// where the partner would be. The box is transparent so the strands are the figure.
+// segment blocks with 5′/3′ ends (top 5′ left, bottom 3′ left). Paired segments share a
+// column (lib/strandAlign.ts), so they sit exactly over each other; block widths follow
+// the segment's (estimated) length — lib/segmentLength.ts. A segment with no partner is
+// an overhang: bar on that strand, hairline where the partner would be. The box is
+// transparent so the strands are the figure.
 // Ghost (skill result not yet committed): dashed border. Stale or discarded: 40%
 // opacity. Badges only when they say something: review decision, failed checks,
 // findings, ground-truth similarity. Amber ring: no ground-truth counterpart.
@@ -13,7 +14,8 @@ import { Handle, Position, type NodeProps } from "@xyflow/react";
 import type { Segment } from "@/lib/events";
 import type { MoleculeNode as MoleculeNodeType } from "@/lib/reducer";
 import { segmentColor, segmentText } from "@/lib/colors";
-import { estimateLength, strandWidths } from "@/lib/segmentLength";
+import { columnWidths, estimateLength } from "@/lib/segmentLength";
+import { alignStrands, type Column } from "@/lib/strandAlign";
 import { cx } from "@/lib/cx";
 
 const END_W = 14; // 5′/3′ label column
@@ -50,7 +52,7 @@ function Block({ seg, width, last }: { seg: Segment; width: number; last: boolea
   );
 }
 
-function Bar({ segs, widths, ends }: { segs: Segment[]; widths: number[]; ends: [string, string] }) {
+function Bar({ segs, row, columns, widths, ends }: { segs: Segment[]; row: "top" | "bottom"; columns: Column[]; widths: number[]; ends: [string, string] }) {
   const barW = widths.reduce((s, w) => s + w, 0);
   return (
     <div className="flex items-center" style={{ height: BAR_H }}>
@@ -58,12 +60,13 @@ function Bar({ segs, widths, ends }: { segs: Segment[]; widths: number[]; ends: 
         {ends[0]}
       </span>
       <span className="flex overflow-hidden rounded-[2px]" style={{ width: barW, height: BAR_H }}>
-        {widths.map((w, i) => {
-          const seg = segs[i];
-          return seg ? (
-            <Block key={i} seg={seg} width={w} last={i === widths.length - 1} />
+        {columns.map((c, k) => {
+          const i = c[row];
+          const w = widths[k];
+          return i !== null && segs[i] ? (
+            <Block key={k} seg={segs[i]} width={w} last={k === columns.length - 1} />
           ) : (
-            <span key={i} className="flex items-center" style={{ width: w, height: BAR_H }} title="overhang — no partner segment">
+            <span key={k} className="flex items-center" style={{ width: w, height: BAR_H }} title="overhang — no partner segment">
               <span className="block w-full border-t border-line" />
             </span>
           );
@@ -79,7 +82,8 @@ function Bar({ segs, widths, ends }: { segs: Segment[]; widths: number[]; ends: 
 function MoleculeNodeImpl({ data, selected }: NodeProps<MoleculeNodeType>) {
   const { state, ghost, stale, discarded, failed, gtMismatch, gtSimilarity } = data;
   const { top, bottom } = state.strands;
-  const widths = strandWidths(top, bottom, NODE_MAX_W - 2 * PAD_X - 2 * END_W - 4);
+  const columns = alignStrands(state);
+  const widths = columnWidths(columns, top, bottom, NODE_MAX_W - 2 * PAD_X - 2 * END_W - 4);
   const barW = widths.reduce((s, w) => s + w, 0) + 2 * END_W + 4;
   const width = Math.max(NODE_MIN_W, Math.min(NODE_MAX_W, barW + 2 * PAD_X));
   const review = state.review_status;
@@ -106,8 +110,8 @@ function MoleculeNodeImpl({ data, selected }: NodeProps<MoleculeNodeType>) {
       </div>
 
       <div className="flex flex-col gap-[3px]">
-        {top.length > 0 && <Bar segs={top} widths={widths} ends={["5′", "3′"]} />}
-        {bottom.length > 0 && <Bar segs={bottom} widths={widths} ends={["3′", "5′"]} />}
+        {top.length > 0 && <Bar segs={top} row="top" columns={columns} widths={widths} ends={["5′", "3′"]} />}
+        {bottom.length > 0 && <Bar segs={bottom} row="bottom" columns={columns} widths={widths} ends={["3′", "5′"]} />}
       </div>
 
       {badges && (

@@ -6,8 +6,9 @@
 // `length` wins, then a number written in the name ("16-nt cell barcode"), then the
 // segment's kind. Widths follow sqrt(length): a 300-nt insert reads as the longest block
 // without flattening an 8-nt index into a sliver, and the two strands of a state share
-// one column width per aligned segment so they stay in register.
+// one width per alignment column so paired segments stay in register.
 import type { Segment } from "./events";
+import type { Column } from "./strandAlign";
 
 const BY_TYPE: Record<string, number> = {
   index: 8,
@@ -40,19 +41,23 @@ export function estimateLength(seg: Segment & { length?: number | null }): numbe
 }
 
 export const MIN_W = 14;
+const FLOORS = [10, 8, 6]; // narrowest a column may be squeezed to, relaxed pass by pass
 export const MAX_W = 150;
 export const widthFor = (len: number) => Math.max(MIN_W, Math.min(MAX_W, Math.round(12 + 5 * Math.sqrt(len))));
 
-/** Column widths shared by both strands (bottom[i] sits under top[i]); scaled to fit maxTotal. */
-export function strandWidths(top: Segment[], bottom: Segment[], maxTotal = 250): number[] {
-  const cols = Math.max(top.length, bottom.length, 1);
-  const w = Array.from({ length: cols }, (_, i) => {
-    const a = top[i] ? widthFor(estimateLength(top[i])) : 0;
-    const b = bottom[i] ? widthFor(estimateLength(bottom[i])) : 0;
-    return Math.max(a, b, MIN_W);
-  });
-  const total = w.reduce((s, x) => s + x, 0);
-  if (total <= maxTotal) return w;
-  const k = maxTotal / total;
-  return w.map((x) => Math.max(10, Math.round(x * k)));
+/**
+ * One width per alignment column (lib/strandAlign.ts), shared by both strands and scaled
+ * to fit maxTotal. A column is as wide as the longer of its two segments.
+ */
+export function columnWidths(columns: Column[], top: Segment[], bottom: Segment[], maxTotal = 250): number[] {
+  const of = (seg: Segment | undefined) => (seg ? widthFor(estimateLength(seg)) : 0);
+  let w = columns.map((c) => Math.max(of(c.top === null ? undefined : top[c.top]), of(c.bottom === null ? undefined : bottom[c.bottom]), MIN_W));
+  // Scaling can leave the total over the limit once narrow columns hit the floor, so repeat with a lower one.
+  for (const floor of FLOORS) {
+    const total = w.reduce((s, x) => s + x, 0);
+    if (total <= maxTotal) break;
+    const k = maxTotal / total;
+    w = w.map((x) => Math.max(floor, Math.floor(x * k)));
+  }
+  return w;
 }

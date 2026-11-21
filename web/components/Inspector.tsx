@@ -7,9 +7,10 @@
 import { useEffect, useState } from "react";
 import type { Chunk, GtDiff, Segment } from "@/lib/events";
 import { oligoName } from "./TransitionEdge";
+import { Duplex } from "./Duplex";
 import type { MoleculeNode, UIState } from "@/lib/reducer";
 import { getChunk } from "@/lib/api";
-import { segmentColor, segmentText } from "@/lib/colors";
+import { segmentColor } from "@/lib/colors";
 import { fmtTime, shortChunk } from "@/lib/format";
 import { cx } from "@/lib/cx";
 
@@ -74,47 +75,24 @@ function Tag({ children, tone = "muted" }: { children: React.ReactNode; tone?: "
   );
 }
 
-function Strand({ name, ends, segments }: { name: string; ends: [string, string]; segments: Segment[] }) {
+function SegmentTable({ name, segments }: { name: string; segments: Segment[] }) {
+  if (segments.length === 0) return null;
   return (
-    <div className="mb-2 last:mb-0">
-      <div className="mb-1 flex items-center gap-2 font-mono text-[10px] text-muted">
-        <span>{ends[0]}</span>
-        <div className="flex min-w-0 flex-1 flex-wrap gap-[2px]">
-          {segments.length === 0 ? (
-            <span className="h-4 flex-1 border-b border-dashed border-line" title="single-stranded" />
-          ) : (
-            segments.map((s, i) => (
-              <span
-                key={i}
-                style={{ background: segmentColor(s.type), color: segmentText(s.type) }}
-                className="h-4 rounded-[2px] px-1.5 font-mono text-[10px] leading-4 font-medium whitespace-nowrap"
-              >
-                {s.name}
-              </span>
-            ))
-          )}
-        </div>
-        <span>{ends[1]}</span>
-      </div>
-      {segments.length > 0 && (
-        <table className="w-full font-mono text-[10px] leading-4 tabular-nums">
-          <tbody>
-            {segments.map((s, i) => (
-              <tr key={i} className="text-muted">
-                <td className="w-6 pr-1 text-right">{i + 1}</td>
-                <td className="pr-2 text-foreground">{s.name}</td>
-                <td className="pr-2">
-                  <span className="mr-1 inline-block h-2 w-2 rounded-[2px] align-middle" style={{ background: segmentColor(s.type) }} />
-                  {s.type}
-                </td>
-
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-      <div className="sr-only">{name}</div>
-    </div>
+    <table className="mt-1.5 w-full font-mono text-[10px] leading-4 tabular-nums">
+      <caption className="text-left text-muted">{name}</caption>
+      <tbody>
+        {segments.map((s, i) => (
+          <tr key={i} className="text-muted">
+            <td className="w-6 pr-1 text-right">{i + 1}</td>
+            <td className="pr-2 text-foreground">{s.name}</td>
+            <td className="pr-2">
+              <span className="mr-1 inline-block h-2 w-2 rounded-[2px] align-middle" style={{ background: segmentColor(s.type) }} />
+              {s.type}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
 
@@ -180,8 +158,9 @@ export function Inspector({ node, ui, hasGt, gtDiff, gtUnavailable = false, onCl
 
       <div className="min-h-0 flex-1 overflow-y-auto text-[11px] leading-4">
         <Section title="strands">
-          <Strand name="top" ends={["5′", "3′"]} segments={state.strands.top} />
-          <Strand name="bottom" ends={["3′", "5′"]} segments={state.strands.bottom} />
+          <Duplex state={state} />
+          <SegmentTable name="top, 5′ to 3′" segments={state.strands.top} />
+          <SegmentTable name="bottom, 3′ to 5′" segments={state.strands.bottom} />
         </Section>
 
         {(hasGt === true || match || unmatched) && (

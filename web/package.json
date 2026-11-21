@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "check:fold": "node scripts/check-fold.mts"
+    "check:fold": "node scripts/check-fold.mts",
+    "check:align": "node scripts/check-align.mts"
   },
   "dependencies": {
     "@xyflow/react": "^12.12.0",
