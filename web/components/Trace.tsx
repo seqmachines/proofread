@@ -1,8 +1,15 @@
 "use client";
-// components/Trace.tsx — "Agent trace": one card per step_started with the goal
-// line, then one row per event under that step (checkpoints are hidden — the
-// status bar consumes them). Last 15 steps, auto-scroll unless pinned. Rows carry
-// data-kind={t}; evidence chips show two per row, then "+N" expands inline.
+// components/Trace.tsx — "Agent trace": how the agent built the workflow.
+// One card per step_started with the agent's own words, then what happened under it.
+//   - Construction steps are boxes: a committed transition together with the product it
+//     made (lib/construction.ts). Closed, a box reads "② reverse transcription, from → to";
+//     open, it shows the oligos, the product's strands with the segments this step added,
+//     the origin, the evidence and any failed checks. "details" opens or closes them all.
+//   - Steps that only read and reason fold into one line once a step that changes the
+//     workflow follows them.
+//   - Every other event is one row (data-kind={t}); checkpoints are not shown. Evidence
+//     chips show two per row, then "+N" expands inline.
+// Auto-scrolls to the newest event unless pinned.
 import {
   createContext,
   useContext,
@@ -12,7 +19,14 @@ import {
   useState,
 } from "react";
 import Link from "next/link";
-import type { EvidenceHit, GtDiff, RunEvent } from "@/lib/events";
+import type {
+  CheckResult,
+  EvidenceHit,
+  GtDiff,
+  MoleculeState,
+  RunEvent,
+  SkillCalledEvent,
+} from "@/lib/events";
 import type {
   HarnessUI,
   HarnessVersionUI,
@@ -20,6 +34,7 @@ import type {
   UIState,
 } from "@/lib/reducer";
 import {
+  circled,
   eventSummary,
   fmtDelta,
   fmtTime,
@@ -27,14 +42,48 @@ import {
   shortChunk,
 } from "@/lib/format";
 import { cx } from "@/lib/cx";
-import type { Comparison } from "@/lib/gtDiff";
+import { segmentColor, segmentText } from "@/lib/colors";
+import type { Comparison, SegmentMarks } from "@/lib/gtDiff";
+import { alignStrands } from "@/lib/strandAlign";
+import {
+  type Construction,
+  WORKFLOW_EVENTS,
+  constructionItems,
+  foldQuiet,
+} from "@/lib/construction";
 import { StrandGlyph } from "./StrandGlyph";
 import { Duplex } from "./Duplex";
+import { oligoName } from "./TransitionEdge";
 
-// State ids are the agent's own; readers know states by name. Rows show the name and keep
-// the id in the tooltip.
-const Labels = createContext<(id: string) => string>((id) => id);
-const useLabel = () => useContext(Labels);
+// What a row needs from the rest of the run. State ids are the agent's own; readers know
+// states by name, so rows show the name and keep the id in the tooltip.
+interface RunView {
+  protocolId: string | null;
+  label: (id: string) => string;
+  state: (id: string) => MoleculeState | undefined; // as committed
+  skill: (id: string) => SkillCalledEvent | undefined;
+  ordinal: (transitionId: string) => number | undefined; // the transition's number on the canvas
+  produced: (stateId: string) => boolean; // some transition makes this state
+  failed: (stateId: string) => CheckResult[];
+  assumed: (stateId: string) => string[];
+  chunks: Record<string, EvidenceHit>;
+  details: boolean; // construction steps start open
+  select?: (stateId: string) => void; // show a state on the canvas
+}
+const RunCtx = createContext<RunView>({
+  protocolId: null,
+  label: (id) => id,
+  state: () => undefined,
+  skill: () => undefined,
+  ordinal: () => undefined,
+  produced: () => false,
+  failed: () => [],
+  assumed: () => [],
+  chunks: {},
+  details: false,
+});
+const useRun = () => useContext(RunCtx);
+const useLabel = () => useRun().label;
 
 // Imported runs only carry a step_started for steps where the agent wrote something; the
 // importer tags every file read with its Harbor step ("… (Harbor step 19)"), so the silent
@@ -60,7 +109,8 @@ function splitStep(st: TraceStep): { own: RunEvent[]; silent: SilentStep[] } {
   return { own, silent };
 }
 // Does this step change the workflow (or judge it)? Reading alone does not.
-const PLOT_EVENTS = new Set<RunEvent["t"]>(["state_committed", "transition_committed", "state_revised", "transition_revised", "skill_called", "verifier_check", "review_recorded"]);
+const changesWorkflow = (st: TraceStep) =>
+  splitStep(st).own.some((e) => WORKFLOW_EVENTS.has(e.t));
 
 function SilentFold({
   from,
@@ -225,9 +275,10 @@ function ChunkChips({
       items={hits}
       keyOf={(h) => h.chunk_id}
       render={(hit) => (
-        <Chip title={`${hit.chunk_id} · page ${hit.page}\n${hit.snippet}`}>
-          {shortChunk(hit.chunk_id, protocolId)}{" "}
-          <span className="opacity-60">p{hit.page}</span>
+        // page 0: the recorded read did not identify a page (imported runs)
+        <Chip title={`${hit.chunk_id}${hit.page > 0 ? ` · page ${hit.page}` : ""}\n${hit.snippet}`}>
+          {shortChunk(hit.chunk_id, protocolId)}
+          {hit.page > 0 && <span className="opacity-60"> p{hit.page}</span>}
         </Chip>
       )}
     />
@@ -241,11 +292,20 @@ function Chips({
   ids: string[];
   protocolId?: string | null;
 }) {
+  const { chunks } = useRun();
   return (
     <ChipList
       items={ids}
       keyOf={(id) => id}
-      render={(id) => <Chip title={id}>{shortChunk(id, protocolId)}</Chip>}
+      render={(id) => {
+        const hit = chunks[id];
+        return (
+          <Chip title={hit ? `${id}${hit.page > 0 ? ` · page ${hit.page}` : ""}\n${hit.snippet}` : id}>
+            {shortChunk(id, protocolId)}
+            {hit && hit.page > 0 && <span className="opacity-60"> p{hit.page}</span>}
+          </Chip>
+        );
+      }}
     />
   );
 }
@@ -337,39 +397,8 @@ function EventRow({
         </Row>
       );
     case "state_committed":
-      return (
-        <Row e={e} label="commit">
-          <span className="font-medium" title={e.state.id}>
-            {e.state.label}
-          </span>{" "}
-          <StrandGlyph state={e.state} />{" "}
-          {e.state.skill_call_id && <Chip>{e.state.skill_call_id}</Chip>}{" "}
-          <Chips ids={e.state.evidence} protocolId={protocolId} />
-        </Row>
-      );
     case "transition_committed":
-      return (
-        <Row e={e} label="edge">
-          <span className="font-mono">
-            {e.transition.op.replace(/_/g, " ")}
-          </span>{" "}
-          <span className="text-muted">
-            <StateName id={e.transition.from} /> →{" "}
-            <StateName id={e.transition.to} />
-          </span>{" "}
-          {e.transition.skill_call_id && (
-            <Chip>{e.transition.skill_call_id}</Chip>
-          )}{" "}
-          <Chips ids={e.transition.evidence} protocolId={protocolId} />
-          {!!e.transition.discarded?.length && (
-            <>
-              {" "}
-              <span className="text-muted">discards</span>{" "}
-              <Chips ids={e.transition.discarded} />
-            </>
-          )}
-        </Row>
-      );
+      return null; // drawn as construction steps (ConstructionBox, see StepCard)
     case "state_revised":
       return (
         <Row e={e} label={e.after ? "revise" : "remove"} tone="warn">
@@ -465,7 +494,7 @@ function EventRow({
         </Row>
       );
     case "checkpoint":
-      return null; // the status bar shows tokens; checkpoints would only add noise here
+      return null; // token bookkeeping, not part of the story
     case "verifier_check": {
       const ok = e.status === "pass";
       return (
@@ -733,6 +762,289 @@ function CheckGroupRow({
   );
 }
 
+// ---------------------------------------------------------------- construction steps
+
+function StateLink({ id }: { id: string }) {
+  const { select, label } = useRun();
+  if (!select) return <StateName id={id} />;
+  return (
+    <button
+      onClick={() => select(id)}
+      className="text-left font-medium hover:underline"
+      title={`${id} · show on the canvas`}
+      data-select-state={id}
+    >
+      {label(id)}
+    </button>
+  );
+}
+
+function Field({ name, children }: { name: string; children: React.ReactNode }) {
+  return (
+    <div className="flex gap-2" data-field={name}>
+      <dt className="w-14 shrink-0 font-mono text-[9px] leading-4 tracking-wide text-muted uppercase">
+        {name}
+      </dt>
+      <dd className="min-w-0 flex-1 break-words">{children}</dd>
+    </div>
+  );
+}
+
+const STRANDS = [
+  { row: "top", caption: "top, 5′ to 3′" },
+  { row: "bottom", caption: "bottom, 3′ to 5′" },
+] as const;
+
+/** A molecule's strands as two columns of named §2.7 blocks, one line per alignment column
+ *  (lib/strandAlign.ts): the canvas picture turned on its side, so a long segment name
+ *  wraps instead of running out of the panel. `added` puts a "+" before a segment. */
+function Ladder({ state, added }: { state: MoleculeState; added?: SegmentMarks }) {
+  const { top, bottom } = state.strands;
+  if (top.length + bottom.length === 0)
+    return <span className="font-mono text-[10px] text-muted">no segments</span>;
+  const columns = alignStrands(state);
+  return (
+    <div className="grid grid-cols-2 gap-x-2 gap-y-[2px]" data-ladder={state.id}>
+      {STRANDS.map(({ row, caption }) => (
+        <span key={row} className="pl-2.5 font-mono text-[9px] leading-3 text-muted">
+          {state.strands[row].length > 0 ? caption : ""}
+        </span>
+      ))}
+      {columns.map((c, k) =>
+        STRANDS.map(({ row }) => {
+          const i = c[row];
+          const seg = i === null ? undefined : state.strands[row][i];
+          if (!seg) {
+            // an overhang on the other strand; nothing at all when this strand does not exist
+            return (
+              <span key={`${k}${row}`} className="flex items-center pl-2.5" title={state.strands[row].length > 0 ? "no partner segment" : undefined}>
+                {state.strands[row].length > 0 && <span className="block w-full border-t border-line" />}
+              </span>
+            );
+          }
+          const isNew = i !== null && (added?.[row].includes(i) ?? false);
+          return (
+            <span key={`${k}${row}`} className="flex gap-1" data-added={isNew ? seg.name : undefined}>
+              <span className="w-1.5 shrink-0 font-mono text-[10px] leading-[14px] font-bold text-emerald-600 dark:text-emerald-400">
+                {isNew ? "+" : ""}
+              </span>
+              <span
+                style={{ background: segmentColor(seg.type), color: segmentText(seg.type) }}
+                className="min-w-0 flex-1 rounded-[2px] px-1.5 font-mono text-[10px] leading-[14px] font-medium break-words"
+                title={`${seg.name} · ${seg.type} · origin ${seg.origin}${isNew ? " · not in the substrate" : ""}`}
+              >
+                {seg.name}
+              </span>
+            </span>
+          );
+        }),
+      )}
+    </div>
+  );
+}
+
+const MATCHING = "Segments are matched to the substrate's by role, then by type, in strand order.";
+
+/** One construction step. Closed: what was done, from what, to what. Open: how and on what grounds. */
+function ConstructionBox({ step }: { step: Construction }) {
+  const run = useRun();
+  const [open, setOpen] = useState(run.details);
+  const { transition: t, product, substrate, skill, change } = step;
+  const productId = t?.to ?? product?.id ?? "";
+  const ordinal = t ? run.ordinal(t.id) : undefined;
+  const added = change ? change.added.top.length + change.added.bottom.length : 0;
+  const evidence = Array.from(new Set([...(product?.evidence ?? []), ...(t?.evidence ?? [])]));
+  const failed = run.failed(productId);
+  const assumed = run.assumed(productId);
+  const origin = product?.origin ?? (t?.skill_call_id ? "skill" : "llm");
+  const skillId = t?.skill_call_id ?? product?.skill_call_id ?? null;
+  return (
+    <li
+      data-kind={t ? "transition_committed" : "state_committed"}
+      data-construction={t?.id ?? productId}
+      data-seq={step.seq}
+      className="rounded border border-line bg-background/50"
+    >
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-start gap-1.5 px-2 py-1 text-left text-[11px] leading-4 hover:bg-line/20"
+        title={open ? "hide the detail" : "show how this step was built"}
+        aria-expanded={open}
+      >
+        <span className="w-2 shrink-0 font-mono text-[10px] text-muted">{open ? "▾" : "▸"}</span>
+        <span className="min-w-0 flex-1">
+          <span className="flex items-baseline gap-2 font-mono">
+            <span className="font-semibold">
+              {t ? `${ordinal ? `${circled(ordinal)} ` : ""}${t.op.replace(/_/g, " ")}` : run.produced(productId) ? "state" : "input material"}
+            </span>
+            {t?.op === "other" && (
+              <span className="min-w-0 truncate text-[10px] text-muted" title={`transition ${t.id}`}>
+                {t.id}
+              </span>
+            )}
+            {change && (added > 0 || change.removed.length > 0) && (
+              <span className="text-[10px] text-muted tabular-nums" title={`${added} segment${added === 1 ? "" : "s"} not in the substrate, ${change.removed.length} no longer present`}>
+                {added > 0 && <span className="text-emerald-600 dark:text-emerald-400">+{added}</span>}
+                {added > 0 && change.removed.length > 0 ? " " : ""}
+                {change.removed.length > 0 ? `−${change.removed.length}` : ""}
+              </span>
+            )}
+            {failed.length > 0 && (
+              <span className="rounded-sm bg-rose-600 px-1 text-[9px] leading-3 font-semibold text-white" title={`${failed.length} failed verifier check${failed.length === 1 ? "" : "s"} on the product`}>
+                ✗ {failed.length}
+              </span>
+            )}
+          </span>
+          <span className="block break-words">
+            {t && (
+              <span className="text-muted">
+                <StateName id={t.from} /> →{" "}
+              </span>
+            )}
+            <StateName id={productId} />
+          </span>
+        </span>
+        {product && <StrandGlyph state={product} />}
+      </button>
+      {open && (
+        <dl className="flex flex-col gap-1 border-t border-line px-2 py-1.5 text-[11px] leading-4" data-construction-detail>
+          {t && (
+            <Field name="from">
+              <StateLink id={t.from} />
+              {!substrate && <span className="text-muted"> · not committed in this run</span>}
+            </Field>
+          )}
+          {!!t?.oligos?.length && (
+            <Field name="with">
+              <span className="inline-flex flex-wrap gap-1">
+                {t.oligos.map((o) => (
+                  <Chip key={o} title={`oligo ${o}`}>
+                    {oligoName(o)}
+                  </Chip>
+                ))}
+              </span>
+            </Field>
+          )}
+          <Field name={t ? "to" : "state"}>
+            <StateLink id={productId} />
+            {product ? (
+              <div className="mt-1">
+                <Ladder state={product} added={change?.added} />
+                {change && (
+                  <p className="mt-1 text-muted" title={MATCHING} data-change>
+                    {[
+                      added > 0 ? `+ ${added} segment${added === 1 ? "" : "s"} not in the substrate` : "",
+                      change.removed.length > 0 ? `no longer present: ${change.removed.join(", ")}` : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" · ") || "same segments as the substrate"}
+                  </p>
+                )}
+              </div>
+            ) : (
+              <span className="text-muted"> · not committed in this run</span>
+            )}
+          </Field>
+          {!!t?.discarded?.length && (
+            <Field name="discarded">
+              {t.discarded.map((id, i) => (
+                <span key={id}>
+                  {i > 0 ? ", " : ""}
+                  <StateLink id={id} />
+                </span>
+              ))}{" "}
+              <span className="text-muted">— not carried forward</span>
+            </Field>
+          )}
+          <Field name="origin">
+            <Chip tone={origin === "skill" ? "accent" : "muted"} title="who wrote the product state (§2.1 origin)">
+              {origin}
+            </Chip>{" "}
+            {skill ? (
+              <span className="font-mono">
+                {skill.skill}(<StateName id={skill.inputs.substrate_id} />, {skill.inputs.oligo}) <Chip>{skill.skill_call_id}</Chip>
+              </span>
+            ) : skillId ? (
+              <Chip>{skillId}</Chip>
+            ) : (
+              <span className="text-muted">no skill call</span>
+            )}
+          </Field>
+          <Field name="evidence">
+            {evidence.length > 0 ? <Chips ids={evidence} protocolId={run.protocolId} /> : <span className="text-muted">none cited</span>}
+          </Field>
+          {assumed.length > 0 && (
+            <Field name="assumed">
+              {assumed.map((text, i) => (
+                <div key={i} className="text-muted italic">
+                  {text}
+                </div>
+              ))}
+            </Field>
+          )}
+          {failed.length > 0 && (
+            <Field name="checks">
+              {failed.map((c, i) => (
+                <div key={i}>
+                  <span className={TONE.fail}>✗</span>{" "}
+                  <span className="font-mono" title={c.check}>
+                    {c.check.replace(/_/g, " ")}
+                  </span>{" "}
+                  <span className="text-muted">— {c.message}</span>
+                </div>
+              ))}
+            </Field>
+          )}
+          <Field name="id">
+            <span className="font-mono text-[10px] text-muted">
+              {t ? `${t.id} → ` : ""}
+              {productId}
+            </span>
+          </Field>
+        </dl>
+      )}
+    </li>
+  );
+}
+
+type StepEntry = { step: TraceStep; next: number | null };
+
+/** Consecutive steps that only read and reason, as one line; open, the steps themselves. */
+function QuietFold({ entries, children }: { entries: StepEntry[]; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const from = entries[0].step.step;
+  const last = entries[entries.length - 1];
+  const to = Math.max(last.step.step, (last.next ?? last.step.step + 1) - 1);
+  const count = (t: RunEvent["t"]) =>
+    entries.reduce((n, x) => n + x.step.events.filter((e) => e.t === t).length, 0);
+  const lookups = count("evidence_searched");
+  const assumptions = count("assumption");
+  const summary = [
+    "reading and reasoning",
+    lookups > 0 ? `${lookups} evidence lookup${lookups === 1 ? "" : "s"}` : null,
+    assumptions > 0 ? `${assumptions} assumption${assumptions === 1 ? "" : "s"}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    <>
+      <section className="border-b border-line px-3 py-1" data-kind="quiet_steps" data-from={from} data-to={to}>
+        <button
+          onClick={() => setOpen((o) => !o)}
+          className="flex w-full items-baseline gap-2 text-left font-mono text-[10px] text-muted hover:text-foreground"
+          title={open ? "fold these steps" : "these steps did not change the workflow; show them"}
+          aria-expanded={open}
+        >
+          <span className="w-2 shrink-0">{open ? "▾" : "▸"}</span>
+          <span>{from === to ? `step ${from}` : `steps ${from}–${to}`}</span>
+          <span className="opacity-80">· {summary}</span>
+        </button>
+      </section>
+      {open && <div className="border-l-2 border-line">{children}</div>}
+    </>
+  );
+}
+
 function StepCard({
   step,
   protocolId,
@@ -748,12 +1060,19 @@ function StepCard({
   hideChecks?: boolean; // verifier checks live in their own tab
   nextStep?: number | null; // the following narrated step, to size the silent fold
 }) {
+  const run = useRun();
   const { own, silent } = splitStep(step);
-  const plot = own.some((e) => PLOT_EVENTS.has(e.t)); // changes or judges the workflow
+  const plot = own.some((e) => WORKFLOW_EVENTS.has(e.t)); // changes or judges the workflow
   const rows: React.ReactNode[] = [];
   const skip = new Set<number>(); // seqs folded into a CheckGroupRow
   let phase: string | null = null;
-  for (const e of own) {
+  for (const item of constructionItems(own, run.state, run.skill)) {
+    if (item.kind === "construction") {
+      // keyed on `details` so the header toggle resets every box
+      rows.push(<ConstructionBox key={`${item.step.seq}:${run.details}`} step={item.step} />);
+      continue;
+    }
+    const e = item.event;
     if (skip.has(e.seq)) continue;
     if (hideChecks && e.t === "verifier_check") continue;
     const p = phaseOf(e.t);
@@ -822,7 +1141,7 @@ function StepCard({
         {/* steps that only read and reason are dimmed; steps that commit, revise or check stay bright */}
         <p
           className={cx(
-            "text-[12px] leading-4",
+            "text-[12px] leading-4 break-words whitespace-pre-line",
             !plot && step.step !== 0 && "text-muted",
           )}
         >
@@ -1009,9 +1328,11 @@ function ComparisonDetail({ comparison, onSelect }: { comparison: Comparison; on
 
 export function Trace({ ui, className, diff, comparison, comparisonUnavailable, onSelectState }: {
   ui: UIState; className?: string; diff?: GtDiff | null; comparison?: Comparison | null; comparisonUnavailable?: boolean;
-  onSelectState?: (id: string) => void; // a state named in the comparison was clicked
+  onSelectState?: (id: string) => void; // a state named in the trace or the comparison was clicked
 }) {
   const [pinned, setPinned] = useState(false);
+  const [details, setDetails] = useState(false); // every construction step open
+
   const [tab, setTab] = useState<"trace" | "verifier">("trace");
   const ref = useRef<HTMLDivElement>(null);
   const steps = ui.trace.slice(-MAX_STEPS);
@@ -1064,13 +1385,46 @@ export function Trace({ ui, className, diff, comparison, comparisonUnavailable, 
   // Steps are numbered by the agent; the last narrated one is the run's length even when the
   // importer skipped silent steps in between.
   const totalSteps = Math.max(ui.trace.length, ...ui.trace.map((st) => st.step));
-  const labelOf = useMemo(() => {
-    const m = new Map(ui.nodes.map((n) => [n.id, n.data.state.label]));
-    return (id: string) => m.get(id) ?? id;
-  }, [ui.nodes]);
+  const run = useMemo<RunView>(() => {
+    const labels = new Map(ui.nodes.map((n) => [n.id, n.data.state.label]));
+    // A trace is a record: a construction step shows its states as they were committed.
+    const committed = new Map<string, MoleculeState>();
+    const assumed = new Map<string, string[]>();
+    for (const st of ui.trace) {
+      for (const e of st.events) {
+        if (e.t === "state_committed" && !committed.has(e.state.id)) committed.set(e.state.id, e.state);
+        if (e.t === "assumption" && e.state_id) assumed.set(e.state_id, [...(assumed.get(e.state_id) ?? []), e.text]);
+      }
+    }
+    const ordinals = new Map<string, number>();
+    const produced = new Set<string>();
+    for (const e of ui.edges) {
+      if (!e.data) continue;
+      if (!e.data.discard) ordinals.set(e.data.transition.id, e.data.ordinal);
+      produced.add(e.data.transition.to);
+      for (const id of e.data.transition.discarded ?? []) produced.add(id);
+    }
+    return {
+      protocolId: ui.protocolId,
+      label: (id) => labels.get(id) ?? committed.get(id)?.label ?? id,
+      state: (id) => committed.get(id),
+      skill: (id) => ui.skillCalls[id],
+      ordinal: (id) => ordinals.get(id),
+      produced: (id) => produced.has(id),
+      failed: (id) => ui.checks.filter((c) => c.state_id === id && c.status === "fail"),
+      assumed: (id) => assumed.get(id) ?? [],
+      chunks: ui.chunks,
+      details,
+      select: onSelectState,
+    };
+  }, [ui, details, onSelectState]);
+  const entries: StepEntry[] = steps.map((step, i) => ({ step, next: steps[i + 1]?.step ?? null }));
+  const card = ({ step, next }: StepEntry) => (
+    <StepCard key={step.seq} step={step} protocolId={ui.protocolId} harness={ui.harness} cardAt={cardAt} hideChecks nextStep={next} />
+  );
 
   return (
-    <Labels.Provider value={labelOf}>
+    <RunCtx.Provider value={run}>
       <aside
         className={cx("flex min-h-0 flex-col bg-panel", className)}
         aria-label="Agent trace and verifier result"
@@ -1097,22 +1451,42 @@ export function Trace({ ui, className, diff, comparison, comparisonUnavailable, 
               : ""}
           </span>
           {tab === "trace" && (
-            <button
-              onClick={() => setPinned((p) => !p)}
-              className={cx(
-                "ml-auto h-5 rounded border px-1.5 font-mono text-[10px] leading-4",
-                pinned
-                  ? "border-accent text-accent"
-                  : "border-line text-muted hover:border-accent",
-              )}
-              title={
-                pinned
-                  ? "Pinned: not following new events. Click to follow."
-                  : "Following new events. Click to pin the scroll position."
-              }
-            >
-              {pinned ? "pinned" : "follow"}
-            </button>
+            <span className="ml-auto flex gap-1.5">
+              <button
+                onClick={() => setDetails((d) => !d)}
+                className={cx(
+                  "h-5 rounded border px-1.5 font-mono text-[10px] leading-4",
+                  details
+                    ? "border-accent text-accent"
+                    : "border-line text-muted hover:border-accent",
+                )}
+                title={
+                  details
+                    ? "Every construction step is open. Click to close them."
+                    : "Open every construction step: oligos, strands, origin, evidence."
+                }
+                aria-pressed={details}
+                data-details-toggle
+              >
+                details
+              </button>
+              <button
+                onClick={() => setPinned((p) => !p)}
+                className={cx(
+                  "h-5 rounded border px-1.5 font-mono text-[10px] leading-4",
+                  pinned
+                    ? "border-accent text-accent"
+                    : "border-line text-muted hover:border-accent",
+                )}
+                title={
+                  pinned
+                    ? "Pinned: not following new events. Click to follow."
+                    : "Following new events. Click to pin the scroll position."
+                }
+              >
+                {pinned ? "pinned" : "follow"}
+              </button>
+            </span>
           )}
         </div>
         <div
@@ -1146,21 +1520,19 @@ export function Trace({ ui, className, diff, comparison, comparisonUnavailable, 
                   … {hidden} earlier step{hidden === 1 ? "" : "s"} hidden
                 </div>
               )}
-              {steps.map((s, i) => (
-                <StepCard
-                  key={s.seq}
-                  step={s}
-                  protocolId={ui.protocolId}
-                  harness={ui.harness}
-                  cardAt={cardAt}
-                  hideChecks
-                  nextStep={steps[i + 1]?.step ?? null}
-                />
-              ))}
+              {foldQuiet(entries, (x) => changesWorkflow(x.step)).map((block) =>
+                "quiet" in block ? (
+                  <QuietFold key={`quiet-${block.quiet[0].step.seq}`} entries={block.quiet}>
+                    {block.quiet.map(card)}
+                  </QuietFold>
+                ) : (
+                  card(block.step)
+                ),
+              )}
             </>
           )}
         </div>
       </aside>
-    </Labels.Provider>
+    </RunCtx.Provider>
   );
 }
