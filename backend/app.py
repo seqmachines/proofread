@@ -19,6 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
 
 from db import get_db
+from benchmark_catalog import current_runs, harness_label
 from auth import authorize, create_invite, require_protocol, requires_review_token, reviewer_for_token
 from verifier_text import public_event, public_workflow
 from engine import create_run
@@ -69,8 +70,8 @@ def require_run(run_id):
 
 
 def stored_events(run_id, since):
-    return [public_event(e) for e in get_db().events.find(
-        {"run_id": run_id, "seq": {"$gt": since}}, {"_id": 0}).sort("seq", 1)]
+    return list(get_db().events.find(
+        {"run_id": run_id, "seq": {"$gt": since}}, {"_id": 0}).sort("seq", 1))
 
 
 class InviteRequest(BaseModel):
@@ -107,15 +108,16 @@ def get_config():
 @app.get("/protocols")
 def get_protocols():
     db = get_db()
-    scores = {w["run_id"]: w["benchmark_score"] for w in db.workflows.find(
+    workflows = {w["run_id"]: w for w in db.workflows.find(
         {"benchmark_score": {"$ne": None}}, {"run_id": 1, "benchmark_score": 1})}
     sources = defaultdict(list)
-    for run in db.runs.find().sort([("executor", 1), ("model", 1), ("harness_version", 1), ("run_id", 1)]):
+    runs = db.runs.find().sort([("executor", 1), ("model", 1), ("harness_version", 1), ("run_id", 1)])
+    for run in current_runs(runs, workflows):
         source = {"run_id": run["run_id"], "source": run.get("source", "live"),
                   "executor": run.get("executor", "unknown"), "model": run.get("model", "unknown"),
                   "harness_version": run["harness_version"]}
-        if run["run_id"] in scores:
-            source["benchmark_score"] = scores[run["run_id"]]
+        if run["run_id"] in workflows:
+            source["benchmark_score"] = workflows[run["run_id"]]["benchmark_score"]
         sources[run["protocol_id"]].append(source)
     return [{"id": p["_id"], **{k: p[k] for k in ("name", "family", "role", "has_gt")},
              "sources": sources[p["_id"]]}
@@ -159,7 +161,7 @@ def get_queue():
     for review in db.reviews.find():
         reviews[review["run_id"]].append(review)
     rows = []
-    for run in db.runs.find().sort("created_at", -1):
+    for run in current_runs(db.runs.find().sort("created_at", -1), workflows):
         workflow = workflows.get(run["run_id"], {})
         unreviewed, unresolved, _ = review_need(workflow, reviews[run["run_id"]])
         if not unreviewed and not unresolved:
@@ -205,12 +207,12 @@ def get_memory(operation: str | None = None, type: str | None = None):
 @app.get("/benchmark")
 def get_benchmark(group_by: Literal["version", "executor", "protocol"] = "version"):
     db = get_db()
-    runs = {r["run_id"]: r for r in db.runs.find()}
+    scores = {w["run_id"]: w for w in db.workflows.find({}, {"run_id": 1, "gt_score": 1, "benchmark_score": 1})}
     groups = defaultdict(list)
     field = {"version": "harness_version", "executor": "executor", "protocol": "protocol_id"}[group_by]
-    for workflow in db.workflows.find():
-        run = runs.get(workflow["run_id"])
-        if run:
+    for run in current_runs(db.runs.find(), scores):
+        workflow = scores.get(run["run_id"])
+        if workflow:
             version = (workflow.get("benchmark_score") or {}).get("benchmark_version")
             groups[(run.get(field, "unknown"), version)].append(workflow)
     rows = []
@@ -316,8 +318,11 @@ def post_gate(version: str):
 
 @app.get("/runs/{run_id}")
 def get_run(run_id: str):
-    return {"run": require_run(run_id),
-            "workflow": public_workflow(get_db().workflows.find_one({"run_id": run_id}, {"_id": 0}))}
+    run = require_run(run_id)
+    label = harness_label(run)
+    workflow = public_workflow(get_db().workflows.find_one({"run_id": run_id}, {"_id": 0}))
+    return {"run": {**run, "harness_version": label},
+            "workflow": {**workflow, "harness_version": label} if workflow else None}
 
 
 @app.post("/runs/{run_id}/messages")
@@ -330,8 +335,8 @@ def post_message(run_id: str):
 
 @app.get("/runs/{run_id}/events")
 def get_events(run_id: str, since: int = Query(0, ge=0)):
-    require_run(run_id)
-    return stored_events(run_id, since)
+    label = harness_label(require_run(run_id))
+    return [public_event(e, label) for e in stored_events(run_id, since)]
 
 
 @app.get("/runs/{run_id}/gt-diff")
@@ -346,13 +351,13 @@ def get_gt_diff(run_id: str):
 @app.get("/runs/{run_id}/stream")
 def stream(run_id: str, request: Request, since: int = Query(0, ge=0),
            speed: float = Query(1, gt=0, allow_inf_nan=False)):
-    require_run(run_id)
+    label = harness_label(require_run(run_id))
 
     async def generate():
         last_seq = since
 
         def frame(event):
-            return f"data: {json.dumps(public_event(event))}\n\n"
+            return f"data: {json.dumps(public_event(event, label))}\n\n"
 
         async def replay():
             nonlocal last_seq

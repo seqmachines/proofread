@@ -48,7 +48,9 @@ def public_check(check):
     return value
 
 
-def public_event(event):
+def public_event(event, harness_version=None):
+    if event["t"] == "run_started" and harness_version is not None:
+        return {**event, "harness_version": harness_version}
     return public_check(event) if event["t"] == "verifier_check" else event
 
 
