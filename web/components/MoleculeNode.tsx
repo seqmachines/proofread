@@ -3,7 +3,8 @@
 // the full name on top, then each strand as a thin continuous bar of §2.7-colored
 // segment blocks with 5′/3′ ends (top 5′ left, bottom 3′ left). Paired segments share a
 // column (lib/strandAlign.ts), so they sit exactly over each other; block widths follow
-// the segment's (estimated) length — lib/segmentLength.ts. A segment with no partner is
+// the segment's (estimated) length — lib/segmentLength.ts. A name too long for its block
+// is set smaller (down to 6px) rather than dropped. A segment with no partner is
 // an overhang: bar on that strand, hairline where the partner would be. The box is
 // transparent so the strands are the figure.
 // Ghost (skill result not yet committed): dashed border. Stale or discarded: 40%
@@ -21,7 +22,9 @@ import { cx } from "@/lib/cx";
 
 const END_W = 14; // 5′/3′ label column
 const BAR_H = 14;
-const CHAR_W = 5.4; // 9px Geist Mono, approx
+const NAME_PX = 9; // segment name size when the block has room for it
+const NAME_MIN_PX = 6; // a longer name shrinks down to this; below it, the name is left to the tooltip
+const CHAR_EM = 0.6; // Geist Mono advance width
 const PAD_X = 10;
 export const NODE_MIN_W = 200;
 export const NODE_MAX_W = 320;
@@ -35,8 +38,15 @@ const REVIEW_BADGE: Record<string, string> = {
   unresolved: "border-amber-500/60 text-amber-600 dark:text-amber-400",
 };
 
+/** The font size at which `name` fits a block `width` px wide, or null when even the smallest does not. */
+function nameSize(name: string, width: number): number | null {
+  const fits = (width - 3) / (name.length * CHAR_EM); // 1.5px clear on each side
+  const size = Math.min(NAME_PX, Math.floor(fits * 2) / 2); // half-pixel steps
+  return size >= NAME_MIN_PX ? size : null;
+}
+
 function Block({ seg, width, last, marked }: { seg: Segment; width: number; last: boolean; marked: boolean }) {
-  const showName = seg.name.length * CHAR_W + 4 <= width;
+  const size = nameSize(seg.name, width);
   return (
     <span
       title={`${seg.name} · ${seg.type} · ~${estimateLength(seg)} nt${marked ? " · not in the ground truth" : ""}`}
@@ -47,10 +57,11 @@ function Block({ seg, width, last, marked }: { seg: Segment; width: number; last
         background: segmentColor(seg.type),
         color: segmentText(seg.type),
         boxShadow: marked ? `inset 0 0 0 2px ${GT_MARK}` : last ? undefined : "inset -1px 0 0 rgba(255,255,255,0.45)",
+        fontSize: size ?? undefined,
       }}
-      className="block shrink-0 overflow-hidden text-center font-mono text-[9px] leading-[14px] font-medium whitespace-nowrap"
+      className="block shrink-0 overflow-hidden text-center font-mono leading-[14px] font-medium whitespace-nowrap"
     >
-      {showName ? seg.name : ""}
+      {size === null ? "" : seg.name}
     </span>
   );
 }
