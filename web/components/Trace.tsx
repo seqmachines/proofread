@@ -5,8 +5,10 @@
 //     made (lib/construction.ts). Closed, a box reads "② reverse transcription, from → to";
 //     open, it shows the oligos, the product's strands with the segments this step added,
 //     the origin, the evidence and any failed checks. "details" opens or closes them all.
-//   - Steps that only read and reason fold into one line once a step that changes the
-//     workflow follows them.
+//   - Steps that only read and reason fold once a step that changes the workflow follows
+//     them: what the agent read is put away, what it wrote stays as a short note per step.
+//     These notes are the agent's messages between actions, the only reasoning a run keeps
+//     (a model's private reasoning is not in the event stream).
 //   - Every other event is one row (data-kind={t}); checkpoints are not shown. Evidence
 //     chips show two per row, then "+N" expands inline.
 // Auto-scrolls to the newest event unless pinned.
@@ -1009,20 +1011,38 @@ function ConstructionBox({ step }: { step: Construction }) {
 
 type StepEntry = { step: TraceStep; next: number | null };
 
-/** Consecutive steps that only read and reason, as one line; open, the steps themselves. */
+/** What the agent wrote at one step, two lines of it until clicked. */
+function Note({ step }: { step: TraceStep }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <li data-kind="agent_note" data-step={step.step}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full gap-2 text-left hover:text-foreground"
+        title={open ? "shorten" : "the agent's own message at this step; click for all of it"}
+        aria-expanded={open}
+      >
+        <span className="w-12 shrink-0 font-mono text-[10px] leading-4 text-muted">step {step.step}</span>
+        <span className={cx("min-w-0 flex-1 text-[11px] leading-4 break-words", open ? "whitespace-pre-line" : "line-clamp-2")}>
+          {step.goal}
+        </span>
+      </button>
+    </li>
+  );
+}
+
+/** Consecutive steps that only read and reason. Folded, the agent's note at each step is
+ *  kept and what it read is put away; open, the steps themselves. */
 function QuietFold({ entries, children }: { entries: StepEntry[]; children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   const from = entries[0].step.step;
   const last = entries[entries.length - 1];
   const to = Math.max(last.step.step, (last.next ?? last.step.step + 1) - 1);
-  const count = (t: RunEvent["t"]) =>
-    entries.reduce((n, x) => n + x.step.events.filter((e) => e.t === t).length, 0);
-  const lookups = count("evidence_searched");
-  const assumptions = count("assumption");
+  const notes = entries.map((x) => x.step).filter((st) => st.goal.trim() !== "");
+  const lookups = entries.reduce((n, x) => n + x.step.events.filter((e) => e.t === "evidence_searched").length, 0);
   const summary = [
-    "reading and reasoning",
-    lookups > 0 ? `${lookups} evidence lookup${lookups === 1 ? "" : "s"}` : null,
-    assumptions > 0 ? `${assumptions} assumption${assumptions === 1 ? "" : "s"}` : null,
+    notes.length > 0 ? `${notes.length} agent note${notes.length === 1 ? "" : "s"}` : "no agent notes",
+    lookups > 0 ? `${lookups} evidence lookup${lookups === 1 ? "" : "s"} folded` : null,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -1032,13 +1052,20 @@ function QuietFold({ entries, children }: { entries: StepEntry[]; children: Reac
         <button
           onClick={() => setOpen((o) => !o)}
           className="flex w-full items-baseline gap-2 text-left font-mono text-[10px] text-muted hover:text-foreground"
-          title={open ? "fold these steps" : "these steps did not change the workflow; show them"}
+          title={open ? "fold these steps" : "these steps did not change the workflow; show them in full, with what the agent read"}
           aria-expanded={open}
         >
           <span className="w-2 shrink-0">{open ? "▾" : "▸"}</span>
           <span>{from === to ? `step ${from}` : `steps ${from}–${to}`}</span>
           <span className="opacity-80">· {summary}</span>
         </button>
+        {!open && notes.length > 0 && (
+          <ul className="mt-1 mb-0.5 flex flex-col gap-1 pl-4 text-foreground/80" data-notes>
+            {notes.map((st) => (
+              <Note key={st.seq} step={st} />
+            ))}
+          </ul>
+        )}
       </section>
       {open && <div className="border-l-2 border-line">{children}</div>}
     </>
