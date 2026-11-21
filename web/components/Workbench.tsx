@@ -148,7 +148,7 @@ function useIdentity() {
   return { reviewer, withIdentity, retryOnAuth, asReviewer, modal };
 }
 
-export function Workbench({ runId }: { runId: string }) {
+export function Workbench({ runId, label }: { runId: string; label?: string }) {
   const identity = useIdentity();
   const fixtureKey = fixtureName(runId); // "" | "<name>" | null (live)
   const isFixture = fixtureKey !== null;
@@ -313,6 +313,7 @@ export function Workbench({ runId }: { runId: string }) {
   // their similarity, predicted states without a counterpart get the amber ring.
   const finished = ui.status === "done" || ui.status === "failed";
   const [gtDiff, setGtDiff] = useState<GtDiff | null>(null);
+  const [gtError, setGtError] = useState(false);
   useEffect(() => {
     if (!finished || !hasGt || isFixture || gtDiff) return;
     let cancelled = false;
@@ -320,9 +321,7 @@ export function Workbench({ runId }: { runId: string }) {
       .then((d) => {
         if (!cancelled) setGtDiff(d);
       })
-      .catch(() => {
-        /* no diff: the canvas just shows no GT badges */
-      });
+      .catch(() => { if (!cancelled) setGtError(true); });
     return () => {
       cancelled = true;
     };
@@ -350,8 +349,8 @@ export function Workbench({ runId }: { runId: string }) {
           proofread
         </Link>
         <span className="text-muted">/</span>
-        <span className="max-w-[7rem] truncate font-mono text-muted" title={runId}>
-          {runId}
+        <span className="max-w-[28rem] truncate font-mono text-muted" title={label ?? ui.protocolId ?? "run"}>
+          {label ?? ui.protocolId ?? "run"}
         </span>
         <span className={cx("font-mono text-[11px]", conn.cls)} title={live.detail ?? undefined}>
           {conn.text}
@@ -438,7 +437,8 @@ export function Workbench({ runId }: { runId: string }) {
             />
           )}
         </div>
-        <Trace ui={ui} className="w-[35%] min-w-[320px] shrink-0 border-l border-line" />
+        <Trace ui={ui} diff={finished ? gtDiff : null} comparisonUnavailable={finished && gtError}
+          className="w-[35%] min-w-[320px] shrink-0 border-l border-line" />
       </div>
 
       <div className="shrink-0">

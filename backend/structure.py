@@ -7,6 +7,7 @@ This is structure_f1, not the paper's state F1. See M4_RESULTS.md.
 """
 
 import re
+from array import array
 from collections import Counter, defaultdict
 from copy import deepcopy
 from functools import lru_cache
@@ -24,11 +25,43 @@ def bag_f1(a, b):
 
 
 def match(scores, floor=0.0):
-    """Exact partial assignment for the small seeded graphs (at most 11 states)."""
+    """Exact partial assignment with deterministic tie breaking."""
     if not scores or not scores[0]:
         return []
     if len(scores[0]) > len(scores):
         return sorted((j, i, s) for i, j, s in match(list(map(list, zip(*scores))), floor))
+
+    # Dense baseline graphs can exhaust a worker when every cached subproblem
+    # retains its entire path. Keep two rows of scores and one byte per choice.
+    width = len(scores[0])
+    if 12 <= width <= 20:
+        size = 1 << width
+        tail = array("d", [0.0]) * size
+        choices = []
+        for i in reversed(range(len(scores))):
+            row = scores[i]
+            weights = [(1 << j, j, v) for j, v in enumerate(row) if v >= floor]
+            current, choice = tail[:], bytearray(size)
+            for used in range(size):
+                if used.bit_count() > i:
+                    continue
+                best = tail[used]
+                for bit, j, value in weights:
+                    if used & bit:
+                        continue
+                    candidate = value + tail[used | bit]
+                    if candidate > best:
+                        best, choice[used] = candidate, j + 1
+                current[used] = best
+            choices.append(choice)
+            tail = current
+        used, pairs = 0, []
+        for i, choice in enumerate(reversed(choices)):
+            j = choice[used] - 1
+            if j >= 0:
+                used |= 1 << j
+                pairs.append((i, j, scores[i][j]))
+        return pairs
 
     @lru_cache(None)
     def solve(i, used):

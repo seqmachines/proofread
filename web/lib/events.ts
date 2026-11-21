@@ -248,6 +248,7 @@ export type RunSource = "live" | "harbor" | "benchmark";
 /** One system with a result for a protocol (§2.6 GET /protocols): the run to open. */
 export interface ProtocolSource {
   run_id: string;
+  public_slug?: string;
   source: RunSource | string;
   executor: string;
   model: string;

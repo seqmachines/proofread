@@ -108,6 +108,7 @@ def get_config():
 @app.get("/protocols")
 def get_protocols():
     db = get_db()
+    slugs = {link["run_id"]: link["_id"] for link in db.run_links.find({}, {"run_id": 1})}
     workflows = {w["run_id"]: w for w in db.workflows.find(
         {"benchmark_score": {"$ne": None}}, {"run_id": 1, "benchmark_score": 1})}
     sources = defaultdict(list)
@@ -118,10 +119,21 @@ def get_protocols():
                   "harness_version": run["harness_version"]}
         if run["run_id"] in workflows:
             source["benchmark_score"] = workflows[run["run_id"]]["benchmark_score"]
+        if run["run_id"] in slugs:
+            source["public_slug"] = slugs[run["run_id"]]
         sources[run["protocol_id"]].append(source)
     return [{"id": p["_id"], **{k: p[k] for k in ("name", "family", "role", "has_gt")},
              "sources": sources[p["_id"]]}
             for p in db.protocols.find().sort("name", 1)]
+
+
+@app.get("/run-links/{key}")
+def resolve_run_link(key: str):
+    link = get_db().run_links.find_one({"$or": [{"_id": key}, {"run_id": key}]}, {"run_id": 1})
+    if link:
+        return {"run_id": link["run_id"], "slug": link["_id"]}
+    run = require_run(key)
+    return {"run_id": run["run_id"], "slug": None}
 
 
 class ImportRequest(BaseModel):
@@ -341,7 +353,13 @@ def get_events(run_id: str, since: int = Query(0, ge=0)):
 
 @app.get("/runs/{run_id}/gt-diff")
 def get_gt_diff(run_id: str):
-    require_run(run_id)
+    run = require_run(run_id)
+    if run.get("benchmark_record_id"):
+        saved = get_db().benchmark_records.find_one(
+            {"_id": run["benchmark_record_id"], "review_publication.step": run["step"]},
+            {"review_publication.diff": 1})
+        if saved:
+            return saved["review_publication"]["diff"]
     try:
         return compare_ground_truth(run_id)["diff"]
     except NoGroundTruth as exc:

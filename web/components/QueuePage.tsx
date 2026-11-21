@@ -111,7 +111,6 @@ export function QueuePage() {
                 <tr className="border-b border-line font-mono text-[10px] tracking-wide text-muted uppercase">
                   <th className="py-1 pr-3 text-left font-normal">need</th>
                   <th className="py-1 pr-3 text-left font-normal">protocol</th>
-                  <th className="py-1 pr-3 text-left font-normal">run</th>
                   <th className="py-1 pr-3 text-left font-normal">executor</th>
                   <th className="py-1 pr-3 text-left font-normal">harness</th>
                   <th className="py-1 pr-3 text-right font-normal">failed · unreviewed</th>
@@ -132,15 +131,12 @@ export function QueuePage() {
                       if (e.key === "Enter") openRun(q.run_id);
                     }}
                     className="cursor-pointer border-b border-line/60 hover:bg-panel focus:bg-panel focus:outline-none"
-                    title={`open /runs/${q.run_id}`}
+                    title={`Open ${q.protocol} · ${q.executor}`}
                   >
                     <td className="py-1.5 pr-3">
                       <NeedBar q={q} max={max} />
                     </td>
                     <td className="py-1.5 pr-3 font-medium">{q.protocol}</td>
-                    <td className="max-w-[9rem] truncate py-1.5 pr-3 font-mono text-[11px] text-muted" title={q.run_id}>
-                      {q.run_id}
-                    </td>
                     <td className="py-1.5 pr-3 font-mono text-[11px] text-muted">{q.executor}</td>
                     <td className="py-1.5 pr-3 font-mono text-[11px] text-muted" title={q.harness_version}>
                       {shortVersion(q.harness_version)}

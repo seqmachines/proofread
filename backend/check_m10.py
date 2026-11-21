@@ -96,7 +96,7 @@ def check(base, root):
     for protocol in protocols.values():
         for source in protocol['sources']:
             assert {'run_id', 'source', 'executor', 'model', 'harness_version'} <= source.keys()
-            assert source.keys() <= {'run_id', 'source', 'executor', 'model', 'harness_version', 'benchmark_score'}
+            assert source.keys() <= {'run_id', 'source', 'executor', 'model', 'harness_version', 'benchmark_score', 'public_slug'}
             if source['source'] == 'benchmark':
                 key = tuple(source[k] if k != 'protocol_id' else protocol['id'] for k in importer.KEY_FIELDS)
                 assert key not in sources, 'Duplicate imported system × protocol'

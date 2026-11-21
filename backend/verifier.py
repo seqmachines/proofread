@@ -166,9 +166,19 @@ def compare_ground_truth(run_id, *, workflow=None, session=None, review_target_i
         workflow = db.workflows.find_one({"run_id": run_id}, session=session)
     if workflow is None:
         raise ValueError(f"Unknown workflow: {run_id}")
-    truth = db.ground_truth.find_one({"protocol_id": workflow["protocol_id"]}, session=session)
+    link = db.run_links.find_one({"run_id": run_id}, {"reference_sha256": 1}, session=session)
+    if link and link.get("reference_sha256"):
+        truth = db.ground_truth_versions.find_one(
+            {"_id": link["reference_sha256"], "protocol_id": workflow["protocol_id"]}, session=session)
+    else:
+        truth = db.ground_truth.find_one({"protocol_id": workflow["protocol_id"]}, session=session)
     if truth is None:
         raise NoGroundTruth(f"No ground truth for {workflow['protocol_id']}")
+    return compare_workflow(workflow, truth, review_target_id=review_target_id)
+
+
+def compare_workflow(workflow, truth, *, review_target_id=None):
+    run_id = workflow["run_id"]
     native = truth.get("scoring_workflows")
     if not native:
         raise ValueError("Reseed structural metadata: python backend/seed.py --ground-truth-only")

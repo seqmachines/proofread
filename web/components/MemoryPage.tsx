@@ -42,7 +42,7 @@ async function findReview(entity: Entity): Promise<{ review: Review; run_id: str
 
 /** The review that created an entity, fetched when the row is expanded. */
 function ProvenanceReview({ entity }: { entity: Entity }) {
-  const { review_id, run_id } = entity.provenance ?? {};
+  const { review_id } = entity.provenance ?? {};
   const [found, setFound] = useState<{ review: Review; run_id: string } | null | undefined>(undefined);
   useEffect(() => {
     let cancelled = false;
@@ -57,7 +57,7 @@ function ProvenanceReview({ entity }: { entity: Entity }) {
       cancelled = true;
     };
   }, [entity]);
-  if (!review_id) return <div className="text-muted">created by a promoted run{run_id ? ` (${run_id})` : ""}, not a review</div>;
+  if (!review_id) return <div className="text-muted">Created by a promoted run.</div>;
   if (found === undefined) return <div className="text-muted">looking up review {review_id}…</div>;
   if (found === null) return <div className="text-muted">review {review_id} was not found on the runs of {entity.protocol_id ?? "its protocol"}</div>;
   const review = found.review;

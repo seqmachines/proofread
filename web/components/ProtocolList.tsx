@@ -47,9 +47,9 @@ function SourceButton({ s, showHarness }: { s: ProtocolSource; showHarness: bool
   const imported = s.source === "benchmark" || s.source === "fixture";
   return (
     <Link
-      href={`/runs/${encodeURIComponent(s.run_id)}`}
+      href={`/runs/${encodeURIComponent(s.public_slug ?? s.run_id)}`}
       className={cx(btn, "inline-flex items-center gap-1.5 no-underline")}
-      title={`open /runs/${s.run_id} · ${s.source} · harness ${s.harness_version}${head ? ` · ${head.label} ${head.value.toFixed(2)} (benchmark record)` : ""}`}
+      title={`${s.executor} · ${s.model} · ${s.harness_version}${head ? ` · ${head.label} ${head.value.toFixed(2)}` : ""}`}
       data-source-run={s.run_id}
     >
       {!imported && (

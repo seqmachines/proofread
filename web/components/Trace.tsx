@@ -12,7 +12,7 @@ import {
   useState,
 } from "react";
 import Link from "next/link";
-import type { EvidenceHit, RunEvent } from "@/lib/events";
+import type { EvidenceHit, GtDiff, RunEvent } from "@/lib/events";
 import type {
   HarnessUI,
   HarnessVersionUI,
@@ -906,7 +906,23 @@ function VerifierPanel({ ui }: { ui: UIState }) {
   );
 }
 
-export function Trace({ ui, className }: { ui: UIState; className?: string }) {
+function ComparisonSummary({ diff }: { diff: GtDiff }) {
+  const rows = [
+    ["States", diff.missing_states.length, diff.extra_states.length, diff.matched_states?.filter(m => m.similarity < 1).length],
+    ["Transitions", diff.missing_transitions?.length, diff.extra_transitions?.length, diff.matched_transitions?.filter(m => m.similarity < 1).length],
+  ];
+  return (
+    <table className="my-2 w-full text-left text-[11px]" data-comparison>
+      <caption className="px-3 py-1 text-left font-medium">Compared with ground truth</caption>
+      <thead className="text-muted"><tr><th scope="col" className="pl-3">Workflow</th><th scope="col">Missing</th><th scope="col">Extra</th><th scope="col">Partial match</th></tr></thead>
+      <tbody>{rows.map(([name, ...counts]) => <tr key={name}><th scope="row" className="pl-3 font-normal">{name}</th>{counts.map((n, i) => <td key={i}>{n ?? "—"}</td>)}</tr>)}</tbody>
+    </table>
+  );
+}
+
+export function Trace({ ui, className, diff, comparisonUnavailable }: {
+  ui: UIState; className?: string; diff?: GtDiff | null; comparisonUnavailable?: boolean;
+}) {
   const [pinned, setPinned] = useState(false);
   const [tab, setTab] = useState<"trace" | "verifier">("trace");
   const ref = useRef<HTMLDivElement>(null);
@@ -1017,7 +1033,11 @@ export function Trace({ ui, className }: { ui: UIState; className?: string }) {
           className="min-h-0 flex-1 overflow-y-auto"
         >
           {tab === "verifier" ? (
-            <VerifierPanel ui={ui} />
+            <>
+              {diff && <ComparisonSummary diff={diff} />}
+              {comparisonUnavailable && <p className="px-3 text-[11px] text-muted">The ground-truth comparison could not be loaded.</p>}
+              <VerifierPanel ui={ui} />
+            </>
           ) : (
             <>
               {ui.runId ? (
