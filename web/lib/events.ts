@@ -63,6 +63,13 @@ export interface BenchmarkScore {
   metrics: Record<string, number>; // t2_required_family_f1, t3_molecular_transition_f1, t3_state_f1, t3_typed_edge_f1, …
 }
 
+/** The agent's published messages and its descriptions in the final prediction. */
+export interface AgentAccount {
+  notes: { step: number; text: string }[];
+  states: Record<string, { physical_state: string }>;
+  transitions: Record<string, { operation_detail?: string; major_reagents?: string[] }>;
+}
+
 export type TransitionOp =
   | "reverse_transcription" | "template_switching" | "pcr"
   | "fragmentation" | "ligation" | "tagmentation" | "other";

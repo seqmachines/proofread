@@ -220,6 +220,7 @@ export function Workbench({ runId, label }: { runId: string; label?: string }) {
         </div>
         <Trace
           ui={ui}
+          account={isFixture ? null : live.account}
           diff={gtDiff}
           comparison={comparison}
           comparisonUnavailable={finished && gtError}

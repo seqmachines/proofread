@@ -336,7 +336,7 @@ function discardEdgesFor(tr: Transition, nodes: MoleculeNode[], existing: Transi
 
 // Imported records (§4) have no step_started: their commits, checks, scores and reviews
 // go under one synthetic card, step 0.
-const RECORD_GOAL = "Imported record — commits, verifier checks and saved scores; no agent trace.";
+const RECORD_GOAL = "Submitted workflow, verifier checks and saved scores";
 
 function traced(trace: TraceStep[], e: RunEvent): TraceStep[] {
   if (e.t === "run_started") return trace;

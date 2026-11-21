@@ -333,8 +333,16 @@ def get_run(run_id: str):
     run = require_run(run_id)
     label = harness_label(run)
     workflow = public_workflow(get_db().workflows.find_one({"run_id": run_id}, {"_id": 0}))
-    return {"run": {**run, "harness_version": label},
-            "workflow": {**workflow, "harness_version": label} if workflow else None}
+    result = {"run": {**run, "harness_version": label},
+              "workflow": {**workflow, "harness_version": label} if workflow else None}
+    snapshot = (run.get("import_record") or {}).get("sha256")
+    if run.get("benchmark_record_id") and snapshot:
+        record = get_db().benchmark_records.find_one(
+            {"_id": run["benchmark_record_id"], "agent_account_hashes.snapshot": snapshot},
+            {"_id": 0, "agent_account": 1})
+        if record and "agent_account" in record:
+            result["agent_account"] = record["agent_account"]
+    return result
 
 
 @app.post("/runs/{run_id}/messages")

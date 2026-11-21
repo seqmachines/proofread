@@ -2,13 +2,14 @@
 // lib/useRunEvents.ts — a live run's ordered event list from the backend.
 // Validates the run first (404 → error, no reconnect loop), then subscribes.
 import { useEffect, useState } from "react";
-import type { Run, RunEvent } from "./events";
+import type { AgentAccount, Run, RunEvent } from "./events";
 import { type ConnectionStatus, getRun, subscribe } from "./api";
 import { toast } from "./toast";
 
 export interface LiveRun {
   events: RunEvent[];
   run: Run | null;
+  account: AgentAccount | null;
   status: ConnectionStatus;
   detail: string | null;
   error: string | null;
@@ -18,6 +19,7 @@ export interface LiveRun {
 export function useRunEvents(runId: string | null, { speed = 1, key = 0 }: { speed?: number; key?: number } = {}): LiveRun {
   const [events, setEvents] = useState<RunEvent[]>([]);
   const [run, setRun] = useState<Run | null>(null);
+  const [account, setAccount] = useState<AgentAccount | null>(null);
   const [status, setStatus] = useState<ConnectionStatus>("idle");
   const [detail, setDetail] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -28,9 +30,10 @@ export function useRunEvents(runId: string | null, { speed = 1, key = 0 }: { spe
     let unsubscribe: (() => void) | null = null;
     let last: ConnectionStatus = "idle";
     getRun(runId)
-      .then(({ run }) => {
+      .then(({ run, agent_account }) => {
         if (cancelled) return;
         setRun(run);
+        setAccount(agent_account ?? null);
         setEvents([]);
         unsubscribe = subscribe(runId, {
           since: 0,
@@ -59,5 +62,5 @@ export function useRunEvents(runId: string | null, { speed = 1, key = 0 }: { spe
     };
   }, [runId, speed, key]);
 
-  return { events, run, status, detail, error };
+  return { events, run, account, status, detail, error };
 }

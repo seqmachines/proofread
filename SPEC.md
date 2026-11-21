@@ -113,6 +113,20 @@ An imported `MoleculeState` may also carry `benchmark_structure`: the native Tas
 
 `benchmark_score` holds the saved benchmark metrics under their original names. `t3_state_f1` includes reference-sequence scoring and is not `structure_f1`. `gt_score` stays null until proofread's verifier scores the run.
 
+**Approved archive extension — agent notes and construction descriptions.** For an
+approved Harbor snapshot, `GET /runs/{id}` may also return `agent_account`:
+
+- `notes: [{step, text}]` contains the agent's visible messages from the verified
+  trajectory, in Harbor step order. A message belongs to its recorded step.
+- `states: {<state_id>: {physical_state}}` and
+  `transitions: {<transition_id>: {operation_detail?, major_reagents?}}` contain
+  the agent's final submitted descriptions. IDs match the symbolic graph on
+  the canvas, including individual displayed edges of a multi-product operation.
+- The importer ties this account to the exact prediction and trajectory hashes,
+  screens the text for publication, and omits unavailable fields. Only visible
+  messages and the three named prediction fields are eligible. The account is
+  read-only context for the trace, separate from the scored workflow and reviews.
+
 **M10 score extension — approved 2026-09-26:** Preserve the available saved metrics, including older library-structure metrics, without renaming, filling missing values with zero, or restricting values to [0, 1]. An imported trial without saved scores still emits `benchmark_scored` with an empty `metrics` object before `run_finished`; the UI labels it unscored. A record without a Task 3 graph has empty `states` and `transitions`; importing it does not reconstruct a graph.
 
 ### 2.2 Events

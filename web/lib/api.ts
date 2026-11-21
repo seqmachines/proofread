@@ -3,6 +3,7 @@
 // Streaming: EventSource with reconnect from the last seq; polling when
 // NEXT_PUBLIC_STREAM_MODE=poll.
 import type {
+  AgentAccount,
   AppConfig,
   BenchmarkRow,
   Chunk,
@@ -92,7 +93,8 @@ export async function startRun(
   }
 }
 
-export const getRun = (id: string) => api<{ run: Run; workflow: Workflow | null }>(`/runs/${encodeURIComponent(id)}`);
+export const getRun = (id: string) =>
+  api<{ run: Run; workflow: Workflow | null; agent_account?: AgentAccount }>(`/runs/${encodeURIComponent(id)}`);
 export const getEvents = (id: string, since = 0) =>
   api<RunEvent[]>(`/runs/${encodeURIComponent(id)}/events?since=${since}`);
 export const getGtDiff = (id: string) => api<GtDiff>(`/runs/${encodeURIComponent(id)}/gt-diff`);

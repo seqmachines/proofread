@@ -22,6 +22,7 @@ import {
 } from "react";
 import Link from "next/link";
 import type {
+  AgentAccount,
   CheckResult,
   EvidenceHit,
   GtDiff,
@@ -60,6 +61,7 @@ import { oligoName } from "./TransitionEdge";
 // What a row needs from the rest of the run. State ids are the agent's own; readers know
 // states by name, so rows show the name and keep the id in the tooltip.
 interface RunView {
+  account?: AgentAccount | null;
   protocolId: string | null;
   label: (id: string) => string;
   state: (id: string) => MoleculeState | undefined; // as committed
@@ -853,6 +855,8 @@ function ConstructionBox({ step }: { step: Construction }) {
   const [open, setOpen] = useState(run.details);
   const { transition: t, product, substrate, skill, change } = step;
   const productId = t?.to ?? product?.id ?? "";
+  const description = run.account?.states[productId]?.physical_state;
+  const operation = t ? run.account?.transitions[t.id] : undefined;
   const ordinal = t ? run.ordinal(t.id) : undefined;
   const added = change ? change.added.top.length + change.added.bottom.length : 0;
   const evidence = Array.from(new Set([...(product?.evidence ?? []), ...(t?.evidence ?? [])]));
@@ -910,6 +914,9 @@ function ConstructionBox({ step }: { step: Construction }) {
       </button>
       {open && (
         <dl className="flex flex-col gap-1 border-t border-line px-2 py-1.5 text-[11px] leading-4" data-construction-detail>
+          {operation?.operation_detail && <Field name="agent description">{operation.operation_detail}</Field>}
+          {!!operation?.major_reagents?.length && <Field name="reagents">{operation.major_reagents.join(", ")}</Field>}
+          {description && <Field name="physical state">{description}</Field>}
           {t && (
             <Field name="from">
               <StateLink id={t.from} />
@@ -1012,7 +1019,7 @@ function ConstructionBox({ step }: { step: Construction }) {
 type StepEntry = { step: TraceStep; next: number | null };
 
 /** What the agent wrote at one step, two lines of it until clicked. */
-function Note({ step }: { step: TraceStep }) {
+function Note({ step }: { step: Pick<TraceStep, "step" | "goal"> }) {
   const [open, setOpen] = useState(false);
   return (
     <li data-kind="agent_note" data-step={step.step}>
@@ -1353,8 +1360,9 @@ function ComparisonDetail({ comparison, onSelect }: { comparison: Comparison; on
   );
 }
 
-export function Trace({ ui, className, diff, comparison, comparisonUnavailable, onSelectState }: {
+export function Trace({ ui, className, diff, comparison, comparisonUnavailable, onSelectState, account }: {
   ui: UIState; className?: string; diff?: GtDiff | null; comparison?: Comparison | null; comparisonUnavailable?: boolean;
+  account?: AgentAccount | null;
   onSelectState?: (id: string) => void; // a state named in the trace or the comparison was clicked
 }) {
   const [pinned, setPinned] = useState(false);
@@ -1411,7 +1419,9 @@ export function Trace({ ui, className, diff, comparison, comparisonUnavailable, 
 
   // Steps are numbered by the agent; the last narrated one is the run's length even when the
   // importer skipped silent steps in between.
-  const totalSteps = Math.max(ui.trace.length, ...ui.trace.map((st) => st.step));
+  const narrated = new Set(ui.trace.filter(st => st.step > 0 && st.goal).map(st => st.step));
+  const savedNotes = (account?.notes ?? []).filter(note => !narrated.has(note.step));
+  const totalSteps = Math.max(ui.trace.length, ...ui.trace.map(st => st.step), ...savedNotes.map(note => note.step));
   const run = useMemo<RunView>(() => {
     const labels = new Map(ui.nodes.map((n) => [n.id, n.data.state.label]));
     // A trace is a record: a construction step shows its states as they were committed.
@@ -1432,6 +1442,7 @@ export function Trace({ ui, className, diff, comparison, comparisonUnavailable, 
       for (const id of e.data.transition.discarded ?? []) produced.add(id);
     }
     return {
+      account,
       protocolId: ui.protocolId,
       label: (id) => labels.get(id) ?? committed.get(id)?.label ?? id,
       state: (id) => committed.get(id),
@@ -1444,7 +1455,7 @@ export function Trace({ ui, className, diff, comparison, comparisonUnavailable, 
       details,
       select: onSelectState,
     };
-  }, [ui, details, onSelectState]);
+  }, [ui, details, onSelectState, account]);
   const entries: StepEntry[] = steps.map((step, i) => ({ step, next: steps[i + 1]?.step ?? null }));
   const card = ({ step, next }: StepEntry) => (
     <StepCard key={step.seq} step={step} protocolId={ui.protocolId} harness={ui.harness} cardAt={cardAt} hideChecks nextStep={next} />
@@ -1546,6 +1557,16 @@ export function Trace({ ui, className, diff, comparison, comparisonUnavailable, 
                 <div className="border-b border-line px-3 py-1 font-mono text-[10px] text-muted">
                   … {hidden} earlier step{hidden === 1 ? "" : "s"} hidden
                 </div>
+              )}
+              {savedNotes.length > 0 && (
+                <details open className="border-b border-line px-3 py-2" data-archive-notes>
+                  <summary className="cursor-pointer font-mono text-[11px] text-muted">
+                    Agent notes · {savedNotes.length}
+                  </summary>
+                  <ul className="mt-2 flex flex-col gap-1.5">
+                    {savedNotes.map(n => <Note key={n.step} step={{ step: n.step, goal: n.text }} />)}
+                  </ul>
+                </details>
               )}
               {foldQuiet(entries, (x) => changesWorkflow(x.step)).map((block) =>
                 "quiet" in block ? (
