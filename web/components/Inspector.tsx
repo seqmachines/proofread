@@ -1,15 +1,14 @@
 "use client";
-// components/Inspector.tsx — "where did this come from?" for one state, and the place
-// a human decides about it (F8: accept / modify / reject / unresolved + note → POST
-// /runs/{id}/reviews). Slides over the right edge of the canvas: strands with per-segment origin, provenance (skill
-// call, incoming transition incl. oligos/discards), evidence chunks (GET /chunks/{id},
-// falling back to the search snippet), checks + findings for this state, GT diff
-// (GET /runs/{id}/gt-diff; 404 → "not yet" until M4).
+// components/Inspector.tsx — "where did this come from?" for one state, read-only.
+// Slides over the right edge of the canvas: strands, provenance (incoming transition
+// incl. oligos/discards), the ground-truth comparison the run page loaded, failed checks
+// and findings for this state, evidence chunks (GET /chunks/{id}, falling back to the
+// search snippet), and any reviews already recorded in the run's history.
 import { useEffect, useState } from "react";
-import { ERROR_TYPES, type Chunk, type ErrorType, type GtDiff, type ReviewDecision, type Segment } from "@/lib/events";
+import type { Chunk, GtDiff, Segment } from "@/lib/events";
 import { oligoName } from "./TransitionEdge";
 import type { MoleculeNode, UIState } from "@/lib/reducer";
-import { ApiError, getChunk, getGtDiff } from "@/lib/api";
+import { getChunk } from "@/lib/api";
 import { segmentColor, segmentText } from "@/lib/colors";
 import { fmtTime, shortChunk } from "@/lib/format";
 import { cx } from "@/lib/cx";
@@ -41,30 +40,6 @@ function useChunks(ids: string[]): Record<string, Chunk | null> {
     };
   }, [key]);
   return chunks;
-}
-
-function useGtDiff(runId: string | null, hasGt: boolean | null, given: GtDiff | null | undefined): { diff: GtDiff | null; note: string | null } {
-  const [state, setState] = useState<{ diff: GtDiff | null; note: string | null }>({ diff: null, note: null });
-  useEffect(() => {
-    if (!runId || hasGt !== true || given) return;
-    let cancelled = false;
-    getGtDiff(runId)
-      .then((diff) => {
-        if (!cancelled) setState({ diff, note: null });
-      })
-      .catch((e: unknown) => {
-        if (cancelled) return;
-        const note =
-          e instanceof ApiError && e.status === 404
-            ? "no GT diff for this run yet (endpoint lands with M4)"
-            : `gt-diff unavailable: ${e instanceof Error ? e.message : String(e)}`;
-        setState({ diff: null, note });
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [runId, hasGt, given]);
-  return given ? { diff: given, note: null } : state;
 }
 
 // gt-diff entries are MoleculeState-like objects (states) or {type, from, to} (edges); strings are ids.
@@ -148,175 +123,13 @@ function Strand({ name, ends, segments }: { name: string; ends: [string, string]
 export interface InspectorProps {
   node: MoleculeNode;
   ui: UIState;
-  runId: string | null; // null for the fixture (no backend run)
   hasGt: boolean | null; // null = unknown (protocol list unavailable)
-  gtDiff?: GtDiff | null; // already fetched by "Compare with ground truth"
-  onReview: (decision: Exclude<ReviewDecision, "modify">, note: string, systematic: boolean, errorType: ErrorType | null) => Promise<void>;
-  onModify: (note: string, errorType: ErrorType) => void; // opens the patch card path (chat → editor → apply as modify)
-  onDraft?: (sentence: string, errorType: ErrorType) => void; // no chat editor: draft the patch locally from a sentence
-  scopeNotice?: string | null; // author invited for another protocol: writes will be refused
+  gtDiff?: GtDiff | null; // loaded by the run page once the run has finished
+  gtUnavailable?: boolean; // the comparison request failed
   onClose: () => void;
 }
 
-const field =
-  "h-6 rounded border border-line bg-panel px-1.5 font-mono text-[10px] text-foreground outline-none focus:border-accent";
-
-const DECISIONS: { id: ReviewDecision; label: string; cls: string; hint: string }[] = [
-  { id: "accept", label: "accept", cls: "border-emerald-500/60 text-emerald-600 dark:text-emerald-400", hint: "correct as reconstructed → memory candidate" },
-  { id: "modify", label: "modify", cls: "border-accent/60 text-accent", hint: "describe the fix in chat; applying the patch records the review" },
-  { id: "reject", label: "reject", cls: "border-rose-500/60 text-rose-600 dark:text-rose-400", hint: "remove this state; downstream goes stale → signal" },
-  { id: "unresolved", label: "unresolved", cls: "border-amber-500/60 text-amber-600 dark:text-amber-400", hint: "needs another look; counted in the queue" },
-];
-
-function ReviewSection({
-  targetId,
-  ui,
-  onReview,
-  onModify,
-  onDraft,
-  scopeNotice,
-}: {
-  targetId: string;
-  ui: UIState;
-  onReview: InspectorProps["onReview"];
-  onModify: InspectorProps["onModify"];
-  onDraft?: InspectorProps["onDraft"];
-  scopeNotice?: string | null;
-}) {
-  const [note, setNote] = useState("");
-  const [systematic, setSystematic] = useState(false);
-  const [errorType, setErrorType] = useState<ErrorType | "">("");
-  const [busy, setBusy] = useState<ReviewDecision | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [drafting, setDrafting] = useState(false);
-  const [sentence, setSentence] = useState("");
-  const history = ui.reviews.filter((r) => r.target_id === targetId);
-  const needsType = (d: ReviewDecision) => d === "modify" || d === "reject";
-  const decide = async (d: ReviewDecision) => {
-    if (needsType(d) && !errorType) {
-      setError("choose the error category first (required for modify and reject)");
-      return;
-    }
-    if (d === "modify") {
-      if (onDraft) {
-        setDrafting(true);
-        setSentence(note.trim());
-        return;
-      }
-      onModify(note.trim(), errorType as ErrorType);
-      return;
-    }
-    setBusy(d);
-    setError(null);
-    try {
-      await onReview(d, note.trim(), systematic, needsType(d) ? (errorType as ErrorType) : null);
-      setNote("");
-      setErrorType("");
-    } catch (e) {
-      const m = e instanceof Error ? e.message : String(e);
-      setError(/cancelled/.test(m) ? "nothing recorded — a reviewer identity is needed to save a decision" : m);
-    } finally {
-      setBusy(null);
-    }
-  };
-  return (
-    <Section title={`review · ${history.length}`}>
-      {scopeNotice && (
-        <div className="mb-1.5 rounded border border-amber-500/50 bg-amber-500/10 px-2 py-1 font-mono text-[10px] text-amber-700 dark:text-amber-400" data-scope-notice>
-          {scopeNotice}
-        </div>
-      )}
-      <div className="flex flex-wrap gap-1" role="group" aria-label="Review decision" data-review-actions>
-        {DECISIONS.map((d) => (
-          <button
-            key={d.id}
-            onClick={() => void decide(d.id)}
-            disabled={busy !== null || (needsType(d.id) && !errorType)}
-            title={needsType(d.id) && !errorType ? `${d.hint} — pick an error category first` : d.hint}
-            className={cx("h-6 rounded border bg-panel px-2 font-mono text-[11px] leading-5 hover:bg-background disabled:opacity-40", d.cls)}
-          >
-            {busy === d.id ? "…" : d.label}
-          </button>
-        ))}
-      </div>
-      <label className="mt-1.5 flex items-center gap-2 font-mono text-[10px] text-muted">
-        <span className="shrink-0">error category</span>
-        <select value={errorType} onChange={(e) => setErrorType(e.target.value as ErrorType | "")} className={cx(field, "min-w-0 flex-1")} aria-label="Error category" data-error-type>
-          <option value="">— required for modify / reject —</option>
-          {ERROR_TYPES.map((t) => (
-            <option key={t} value={t}>
-              {t}
-            </option>
-          ))}
-        </select>
-      </label>
-      <textarea
-        rows={2}
-        value={note}
-        onChange={(e) => setNote(e.target.value)}
-        placeholder="note (optional) — why; for modify, this seeds the chat"
-        className="mt-1.5 w-full resize-none rounded border border-line bg-panel px-2 py-1 text-[11px] leading-4 text-foreground outline-none placeholder:text-muted/70 focus:border-accent"
-        aria-label="Review note"
-      />
-      <label className="mt-1 flex items-center gap-1 font-mono text-[10px] text-muted">
-        <input type="checkbox" checked={systematic} onChange={(e) => setSystematic(e.target.checked)} className="accent-accent" />
-        this will recur (systematic → harness signal)
-      </label>
-      {drafting && onDraft && (
-        <div className="mt-1.5 rounded border border-accent/50 px-2 py-1.5" data-modify-composer>
-          <div className="mb-1 font-mono text-[10px] text-muted">describe the change — e.g. “add a 5′ handle to the top strand” or “remove the primer”</div>
-          <div className="flex items-center gap-1.5">
-            <input
-              value={sentence}
-              onChange={(e) => setSentence(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && sentence.trim()) {
-                  onDraft(sentence.trim(), errorType as ErrorType);
-                  setDrafting(false);
-                }
-              }}
-              placeholder="what should change on this state"
-              className="h-6 min-w-0 flex-1 rounded border border-line bg-panel px-1.5 font-mono text-[11px] text-foreground outline-none focus:border-accent"
-              aria-label="Modify sentence"
-              autoFocus
-            />
-            <button
-              className="h-6 rounded border border-accent px-2 font-mono text-[11px] leading-5 text-accent disabled:opacity-40"
-              disabled={!sentence.trim()}
-              onClick={() => {
-                onDraft(sentence.trim(), errorType as ErrorType);
-                setDrafting(false);
-              }}
-              data-modify-draft
-            >
-              draft patch
-            </button>
-            <button className="h-6 rounded border border-line px-2 font-mono text-[11px] leading-5 text-muted" onClick={() => setDrafting(false)}>
-              cancel
-            </button>
-          </div>
-          <div className="mt-1 font-mono text-[10px] text-muted">the patch card appears at the bottom; applying it records the modify review</div>
-        </div>
-      )}
-      {error && <div className={cx("mt-1 font-mono text-[10px]", /nothing recorded/.test(error) ? "text-muted" : "text-rose-600 dark:text-rose-400")}>{error}</div>}
-      {history.length > 0 && (
-        <ul className="mt-1.5 flex flex-col gap-1 border-t border-line pt-1.5">
-          {history.map((r) => (
-            <li key={r.review_id} className="text-[11px]" data-review-row={r.review_id}>
-              <Tag tone={r.decision === "reject" ? "rose" : r.decision === "unresolved" ? "warn" : "accent"}>{r.decision}</Tag>{" "}
-              <span className="font-mono text-[10px] text-muted">
-                {r.review_id} · {r.reviewer.name ?? r.reviewer.id} · {fmtTime(r.ts)}
-              </span>
-              {r.note && <div className="text-muted">{r.note}</div>}
-            </li>
-          ))}
-        </ul>
-      )}
-    </Section>
-  );
-}
-
-export function Inspector({ node, ui, runId, hasGt, gtDiff, onReview, onModify, onDraft, scopeNotice, onClose }: InspectorProps) {
+export function Inspector({ node, ui, hasGt, gtDiff, gtUnavailable = false, onClose }: InspectorProps) {
   const { state, ghost, stale, discarded } = node.data;
   const incoming = ui.edges.filter((e) => e.target === state.id && !e.data?.discard).map((e) => e.data!.transition);
   const evidenceIds = Array.from(new Set([...state.evidence, ...incoming.flatMap((t) => t.evidence)]));
@@ -324,9 +137,9 @@ export function Inspector({ node, ui, runId, hasGt, gtDiff, onReview, onModify, 
   const checks = ui.checks.filter((c) => c.state_id === state.id);
   const failedChecks = checks.filter((c) => c.status === "fail");
   const findings = ui.findings.filter((f) => f.state_id === state.id);
-  const gt = useGtDiff(runId, hasGt, gtDiff);
-  const match = (gt.diff?.matched_states ?? []).find((m) => m.predicted?.id === state.id);
-  const unmatched = gt.diff ? diffHas(gt.diff.extra_states, state.id) : false;
+  const match = (gtDiff?.matched_states ?? []).find((m) => m.predicted?.id === state.id);
+  const unmatched = gtDiff ? diffHas(gtDiff.extra_states, state.id) : false;
+  const reviews = ui.reviews.filter((r) => r.target_id === state.id);
   const labelOf = (id: string) => ui.nodes.find((n) => n.id === id)?.data.state.label ?? id;
 
   return (
@@ -366,8 +179,6 @@ export function Inspector({ node, ui, runId, hasGt, gtDiff, onReview, onModify, 
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto text-[11px] leading-4">
-        <ReviewSection targetId={state.id} ui={ui} onReview={onReview} onModify={onModify} onDraft={onDraft} scopeNotice={scopeNotice} />
-
         <Section title="strands">
           <Strand name="top" ends={["5′", "3′"]} segments={state.strands.top} />
           <Strand name="bottom" ends={["3′", "5′"]} segments={state.strands.bottom} />
@@ -385,7 +196,9 @@ export function Inspector({ node, ui, runId, hasGt, gtDiff, onReview, onModify, 
             ) : unmatched ? (
               <Tag tone="rose">no ground-truth counterpart</Tag>
             ) : (
-              <span className="text-muted">{gt.note ?? (gt.diff ? "not part of the comparison" : "loading…")}</span>
+              <span className="text-muted">
+                {gtDiff ? "not part of the comparison" : gtUnavailable ? "the comparison could not be loaded" : "loads when the run has finished"}
+              </span>
             )}
           </Section>
         )}
@@ -429,6 +242,22 @@ export function Inspector({ node, ui, runId, hasGt, gtDiff, onReview, onModify, 
             );
           })}
         </Section>
+
+        {reviews.length > 0 && (
+          <Section title={`reviews · ${reviews.length}`}>
+            <ul className="flex flex-col gap-1">
+              {reviews.map((r) => (
+                <li key={r.review_id} data-review-row={r.review_id}>
+                  <Tag tone={r.decision === "reject" ? "rose" : r.decision === "unresolved" ? "warn" : "accent"}>{r.decision}</Tag>{" "}
+                  <span className="font-mono text-[10px] text-muted">
+                    {r.reviewer.name ?? r.reviewer.id} · {fmtTime(r.ts)}
+                  </span>
+                  {r.note && <div className="text-muted">{r.note}</div>}
+                </li>
+              ))}
+            </ul>
+          </Section>
+        )}
       </div>
     </aside>
   );
